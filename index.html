@@ -3163,8 +3163,8 @@ async function loadTasks() {
     let q = sb.from('tasks').select('*').order('id', { ascending: false });
     if (isTechnician) {
       if (useFullFilter) {
-        // Tehnician vede: (a) taskurile lui personale, (b) cele open pool, (c) cele unde e în echipă
-        q = q.or(`technician_id.eq.${currentUser.id},and(is_open_pool.eq.true,technician_id.is.null),team_member_ids.cs.{${currentUser.id}}`);
+        // Tehnician vede TOATE taskurile — read-only pentru cele asignate altcuiva (restricționat în UI)
+        // Nu adăugăm filtru pe query — vede tot ca adminul
       } else {
         // Fallback minim: doar taskurile lui (în caz că lipsesc coloanele noi)
         q = q.eq('technician_id', currentUser.id);
@@ -3528,8 +3528,11 @@ function renderTaskDetail(t) {
   // Butoane jos: Mențiuni + Poze + acțiune principală
   const actions = document.getElementById('detailActions');
   let primaryBtn = '';
-  const mentionsDisabled = isClosed ? 'disabled' : '';
-  const photosDisabled = ''; // Butonul Poze rămâne activ mereu — pentru vizualizare, chiar dacă task-ul e închis
+  const isMyTask = !isAdmin && t.technician_id === currentUser?.id;
+  const isTeamMember = !isAdmin && isTeam && t.team_member_ids?.includes(currentUser?.id);
+  const canInteract = isAdmin || isMyTask || isTeamMember || isOpenPool;
+  const mentionsDisabled = (isClosed || !canInteract) ? 'disabled' : '';
+  const photosDisabled = '';
 
   if (isClosed) {
     // Task închis — nimeni nu mai poate modifica (cu excepția admin care poate reactiva)
@@ -3551,7 +3554,14 @@ function renderTaskDetail(t) {
       primaryBtn = `<button class="det-btn det-btn-green" onclick="closeTeamTask(${t.id})">✓ Finalizează (închide pentru toți)</button>`;
     }
   } else if (!isAdmin) {
-    if (isOpenPool) {
+    // Verifică dacă tehnicianul poate interacționa cu acest task
+    const isMyTask = t.technician_id === currentUser?.id;
+    const isReadOnly = !isOpenPool && !isMyTask; // task asignat altcuiva → read-only
+
+    if (isReadOnly) {
+      // Task asignat altui tehnician — vizibil dar fără butoane de acțiune
+      primaryBtn = `<div style="font-size:12px;color:var(--text-muted);text-align:center;padding:6px 0;">👁 Vizualizare — task asignat lui ${getTechName(t.technician_id) || 'alt tehnician'}</div>`;
+    } else if (isOpenPool) {
       primaryBtn = `<button class="det-btn det-btn-blue" onclick="updateStatus(${t.id},'in_lucru')" style="background:linear-gradient(135deg,#1E5FD9,#3B82F6);">🎯 Preia primul!</button>`;
     } else if (t.status === 'nou') {
       primaryBtn = `<button class="det-btn det-btn-blue" onclick="updateStatus(${t.id},'in_lucru')">Preia task</button>`;
@@ -3582,6 +3592,23 @@ function updateStats() {
   // Task-uri active = cele care nu sunt finalizate
   const activeTasks = allTasks.filter(t => t.status !== 'finalizat');
   document.getElementById('stTotal').textContent = activeTasks.length;
+
+  // Actualizează contorul din header-ul listei de taskuri
+  const taskCountEl = document.getElementById('taskCount');
+  if (taskCountEl) {
+    if (selectedMonth === 'current') {
+      const activeCount = activeTasks.length;
+      taskCountEl.textContent = activeCount + (activeCount === 1 ? ' activ' : ' active');
+    } else {
+      // Istoric — arată total taskuri din luna selectată
+      const total = allTasks.length;
+      const luna = selectedMonth; // format YYYY-MM
+      const [y, m] = luna.split('-');
+      const numeMonth = new Date(parseInt(y), parseInt(m)-1, 1).toLocaleString('ro-RO', { month: 'long', year: 'numeric' });
+      taskCountEl.textContent = total + (total === 1 ? ' task în ' : ' taskuri în ') + numeMonth;
+    }
+  }
+
   // Finalizate luna asta
   const now = new Date();
   const thisMonth = now.getMonth(), thisYear = now.getFullYear();
