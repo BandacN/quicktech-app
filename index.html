@@ -3834,7 +3834,7 @@ async function saveTask() {
       );
     }
     showToast('Task adăugat!','success');
-    if (data?.id) await saveClientDinTask(data.id, { ...payload, maps_link: document.getElementById('tMapsLink').value.trim() || null });
+    if (data?.id) await saveClientDinTask(data.id, { ...payload, maps_link: document.getElementById('tMapsLink').value.trim() || null, team_member_ids: teamMemberIds || [] });
   }
   closeTaskModal();
   await loadTasks();
@@ -7391,6 +7391,18 @@ async function saveClientDinTask(taskId, taskData) {
   const sisteme = [];
   if (sistem && sistem !== 'Altul') sisteme.push(sistem);
   if (sistemCustom) sisteme.push(sistemCustom);
+
+  // Dacă task-ul are echipă, salvăm și echipa
+  const teamIds = taskData.team_member_ids || [];
+  let echipaText = null;
+  if (teamIds.length > 0) {
+    const names = teamIds.map(id => {
+      const p = allProfiles?.find(x => x.id === id);
+      return p ? p.full_name : id;
+    });
+    echipaText = names.join(' + ');
+  }
+
   const { error } = await sb.from('clienti').insert({
     nume: taskData.client, adresa: taskData.location || null,
     maps_link: taskData.maps_link || null, telefon,
@@ -7399,6 +7411,8 @@ async function saveClientDinTask(taskId, taskData) {
     data_instalare: dataInst, garantie_luni: garantieLuni,
     garantie_exp: expDate.toISOString().split('T')[0],
     tehnician_id: taskData.technician_id || null,
+    team_member_ids: teamIds.length ? teamIds : null,
+    echipa_text: echipaText,
     task_id: taskId, nota: taskData.description || null,
   });
   if (error) console.warn('Eroare salvare client:', error.message);
@@ -7453,7 +7467,12 @@ function renderClienti() {
     : filtered.map((c, idx) => {
       const gar = clientGarantieStatus(c);
       const sisteme = (c.tip_sistem||[]).map(s => `<span class="client-sistem-tag">${s}</span>`).join('');
-      const tehName = c.profiles?.full_name || '—';
+      const tehName = c.profiles?.full_name || null;
+      const echipaDisplay = c.echipa_text
+        ? `👥 Echipă: <strong>${c.echipa_text}</strong>`
+        : tehName
+          ? `🔧 Tehnician: <strong>${tehName}</strong>`
+          : '🔧 Tehnician: <strong>—</strong>';
       return `<div class="client-card">
         <div class="client-card-header">
           <div><div class="client-card-name">${c.nume}</div>${c.telefon ? `<div class="client-card-phone">📞 ${c.telefon}</div>` : ''}</div>
@@ -7462,7 +7481,7 @@ function renderClienti() {
         ${c.adresa ? `<div class="client-card-row">📍 <strong>${c.adresa}</strong></div>` : ''}
         ${c.maps_link ? `<div class="client-card-row">🗺 <a href="${c.maps_link}" target="_blank" style="color:var(--accent);">Vezi pe hartă</a></div>` : ''}
         ${sisteme ? `<div style="margin:6px 0;">${sisteme}</div>` : ''}
-        <div class="client-card-row">🔧 Tehnician: <strong>${tehName}</strong></div>
+        <div class="client-card-row">${echipaDisplay}</div>
         ${c.data_instalare ? `<div class="client-card-row">📅 Instalat: <strong>${formatDate(c.data_instalare)}</strong> · <strong>${c.garantie_luni} luni</strong> garanție</div>` : ''}
         ${c.garantie_exp ? `<div class="client-card-row">⏳ Expiră: <strong>${formatDate(c.garantie_exp)}</strong></div>` : ''}
         ${c.nota ? `<div class="client-card-row" style="font-style:italic;">"${c.nota}"</div>` : ''}
