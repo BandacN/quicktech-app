@@ -383,6 +383,25 @@ label {
   margin: 6px 0;
 }
 
+/* ── Istoric colapsabil pe 2 nivele (Istoric > An > Lună) ── */
+.sb-collapse-hdr { display:flex; align-items:center; justify-content:space-between; padding:8px 18px; cursor:pointer; transition: background .15s; }
+.sb-collapse-hdr:hover { background: rgba(255,255,255,0.04); }
+.sb-collapse-lbl { color: rgba(255,255,255,0.28); font-size: 9px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; display: flex; align-items: center; gap: 6px; }
+.sb-collapse-count { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.5); font-size: 9px; font-weight: 700; padding: 2px 7px; border-radius: 10px; text-transform: none; letter-spacing: normal; }
+.sb-collapse-arrow { color: rgba(255,255,255,0.4); font-size: 10px; transition: transform .2s; flex-shrink: 0; }
+.sb-collapse-arrow.open { transform: rotate(90deg); }
+.sb-collapse-body { display: none; flex-direction: column; gap: 2px; }
+.sb-collapse-body.open { display: flex; }
+
+.sb-year-hdr { display:flex; align-items:center; justify-content:space-between; padding:7px 18px 7px 30px; cursor:pointer; transition: background .15s; }
+.sb-year-hdr:hover { background: rgba(255,255,255,0.04); }
+.sb-year-lbl { color: rgba(255,255,255,0.55); font-size: 11.5px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
+.sb-year-arrow { color: rgba(255,255,255,0.35); font-size: 9px; transition: transform .2s; flex-shrink: 0; }
+.sb-year-arrow.open { transform: rotate(90deg); }
+.sb-year-body { display: none; }
+.sb-year-body.open { display: block; }
+.sb-year-body .sidebar-item { padding-left: 38px; }
+
 .sidebar-item {
   display: flex; align-items: center; gap: 10px;
   padding: 9px 18px;
@@ -1391,14 +1410,16 @@ label {
   flex-shrink: 0;
 }
 .badge {
-  display: inline-flex; align-items: center; gap: 4px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
   font-size: 10px; font-weight: 700;
-  padding: 4px 9px;
+  padding: 4px 6px;
   border-radius: 20px;
   text-transform: uppercase;
   letter-spacing: 0.3px;
   border: 1px solid transparent;
   white-space: nowrap;
+  width: 92px;
+  box-sizing: border-box;
 }
 /* priority badges - aliasuri pentru JS (b-* / s-*) și clase legacy (normal/urgent/etc) */
 .badge.normal, .badge.b-normal { background: #EFF6FF; color: #1E5FD9; border-color: #BFDBFE; }
@@ -2695,8 +2716,11 @@ label {
         <span id="currentMonthLabel">Luna aceasta</span>
       </div>
       <div class="sidebar-divider"></div>
-      <div class="sidebar-title">Istoric</div>
-      <div id="monthList" style="display:flex;flex-direction:column;gap:2px;"></div>
+      <div class="sb-collapse-hdr" onclick="toggleIstoricSection()">
+        <div class="sb-collapse-lbl">Istoric <span class="sb-collapse-count" id="istoricCount"></span></div>
+        <span class="sb-collapse-arrow" id="istoricArrow">▶</span>
+      </div>
+      <div id="monthList" class="sb-collapse-body" style="flex-direction:column;gap:2px;"></div>
 
       <div id="sidebarModuleSection">
       <div class="sidebar-divider"></div>
@@ -3114,9 +3138,11 @@ async function showApp() {
     setTimeout(() => { loadTeams(); }, 1500);
   }
 
-  // Bottom nav: FAB doar pentru admin
+  // Bottom nav: FAB și Istoric doar pentru admin
   const navFab = document.getElementById('navFab');
   if (navFab) navFab.style.display = isAdmin ? 'flex' : 'none';
+  const navHistory = document.getElementById('navHistory');
+  if (navHistory) navHistory.style.display = isAdmin ? 'flex' : 'none';
 }
 
 // Bottom nav: setează item-ul activ
@@ -3686,7 +3712,8 @@ function openTaskModal(id=null) {
     document.getElementById('tMapsLink').value = t.maps_link||'';
     document.getElementById('tDesc').value = t.description||'';
     document.getElementById('tPriority').value = t.priority;
-    document.getElementById('tStatus').value = t.status;
+    // Status-ul nu se mai editează din formular — se păstrează automat pe taskModal (data attribute)
+    document.getElementById('taskOverlay').dataset.currentStatus = t.status;
     // Determin valoarea select: team / all / id individual / ''
     const isTeam = Array.isArray(t.team_member_ids) && t.team_member_ids.length > 0;
     let techValue;
@@ -3710,7 +3737,7 @@ function openTaskModal(id=null) {
     document.getElementById('tMapsLink').value='';
     document.getElementById('tDesc').value='';
     document.getElementById('tPriority').value='normal';
-    document.getElementById('tStatus').value='nou';
+    document.getElementById('taskOverlay').dataset.currentStatus = 'nou';
     document.getElementById('tTech').value='';
     document.getElementById('tDate').value=new Date().toISOString().split('T')[0];
     document.getElementById('tPhone').value='';
@@ -3760,7 +3787,7 @@ async function saveTask() {
     maps_link: document.getElementById('tMapsLink').value.trim() || null,
     description: document.getElementById('tDesc').value.trim(),
     priority: document.getElementById('tPriority').value,
-    status: document.getElementById('tStatus').value,
+    status: document.getElementById('taskOverlay').dataset.currentStatus || 'nou',
     technician_id: techId,
     technician_name: techName,
     is_open_pool: isOpenPool,
@@ -4622,6 +4649,16 @@ function formatMonthLabel(my) {
   return `${months[parseInt(m)-1]} ${y}`;
 }
 
+// Toggle secțiunea "Istoric" (nivel 1 din accordion)
+function toggleIstoricSection() {
+  const body = document.getElementById('monthList');
+  const arrow = document.getElementById('istoricArrow');
+  if (!body) return;
+  const isOpen = body.classList.contains('open');
+  body.classList.toggle('open', !isOpen);
+  if (arrow) arrow.classList.toggle('open', !isOpen);
+}
+
 async function loadMonthList() {
   // Lunile din istoric = lunile în care s-au FINALIZAT task-uri (finalizat_month).
   // Fallback la month_year pentru task-uri vechi finalizate fără finalizat_month.
@@ -4651,12 +4688,42 @@ async function loadMonthList() {
     list.innerHTML = '<div style="font-size:11px;color:var(--text-muted);padding:4px 8px;">Nicio lună anterioară</div>';
     return;
   }
-  list.innerHTML = months.map(m => `
-    <div class="sidebar-item ${selectedMonth === m ? 'active' : ''}" onclick="selectMonth('${m}', this)">
-      <span class="si-icon">📁</span>
-      <span>${formatMonthLabel(m)}</span>
+
+  // Grupez lunile pe ani (format month = 'YYYY-MM')
+  const byYear = {};
+  months.forEach(m => {
+    const year = m.split('-')[0];
+    if (!byYear[year]) byYear[year] = [];
+    byYear[year].push(m);
+  });
+  const years = Object.keys(byYear).sort().reverse();
+  const countEl = document.getElementById('istoricCount');
+  if (countEl) countEl.textContent = years.length;
+
+  list.innerHTML = years.map(year => `
+    <div class="sb-year-hdr" onclick="toggleYearGroup('${year}', this)">
+      <div class="sb-year-lbl"><span class="si-icon">📅</span>${year}</div>
+      <span class="sb-year-arrow" id="yearArr-${year}">▶</span>
+    </div>
+    <div class="sb-year-body" id="yearBody-${year}">
+      ${byYear[year].map(m => `
+        <div class="sidebar-item ${selectedMonth === m ? 'active' : ''}" onclick="selectMonth('${m}', this)">
+          <span class="si-icon">📁</span>
+          <span>${formatMonthLabel(m)}</span>
+        </div>
+      `).join('')}
     </div>
   `).join('');
+}
+
+// Toggle accordion an → arată/ascunde lunile acelui an
+function toggleYearGroup(year, headerEl) {
+  const body = document.getElementById('yearBody-' + year);
+  const arrow = document.getElementById('yearArr-' + year);
+  if (!body) return;
+  const isOpen = body.classList.contains('open');
+  body.classList.toggle('open', !isOpen);
+  if (arrow) arrow.classList.toggle('open', !isOpen);
 }
 
 function selectMonth(month, el) {
@@ -5114,15 +5181,29 @@ function showTasks() {
   closeSidebar();
 }
 
-// Stub: toggleHistoryDrawer (poate fi implementat mai târziu)
+// Deschide sidebar-ul cu focus pe secțiunea Istoric (selector de luni)
 function toggleHistoryDrawer() {
-  // Pentru moment doar deschide sidebar pe mobile dacă e închis
   const sidebar = document.getElementById('sidebar');
-  if (window.innerWidth <= 900 && sidebar && !sidebar.classList.contains('open')) {
+  if (!sidebar) return;
+  if (!sidebar.classList.contains('open')) {
     toggleSidebar();
-  } else {
-    showToast && showToast('Selectează o lună din sidebar', 'info');
   }
+  // Deschide automat secțiunea "Istoric" (dacă e închisă) și scroll + highlight
+  setTimeout(() => {
+    const monthList = document.getElementById('monthList');
+    const arrow = document.getElementById('istoricArrow');
+    if (monthList && !monthList.classList.contains('open')) {
+      monthList.classList.add('open');
+      if (arrow) arrow.classList.add('open');
+    }
+    if (monthList) {
+      monthList.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      monthList.style.transition = 'background .3s';
+      monthList.style.background = 'rgba(30,95,217,0.15)';
+      monthList.style.borderRadius = '10px';
+      setTimeout(() => { monthList.style.background = ''; }, 900);
+    }
+  }, 250);
 }
 
 // Patches removed - handled by _hideAll()
@@ -8284,19 +8365,12 @@ async function stergeMaterialStoc(id) {
           <option value="priority">🔴 Prioritar</option>
         </select>
       </div>
-      <div class="fg"><label>Status</label>
-        <select id="tStatus">
-          <option value="nou">Nou</option>
-          <option value="in_lucru">În lucru</option>
-          <option value="finalizat">Finalizat</option>
-        </select>
-      </div>
+      <div class="fg"><label>Data</label><input type="date" id="tDate"></div>
     </div>
     <div class="form-row">
-      <div class="fg"><label>Tehnician</label>
+      <div class="fg" style="grid-column: 1 / -1;"><label>Tehnician</label>
         <select id="tTech" onchange="onTaskTechChange()"><option value="">— Neatribuit —</option></select>
       </div>
-      <div class="fg"><label>Data</label><input type="date" id="tDate"></div>
     </div>
     <!-- Zonă selecție echipă — apare doar când tTech === 'team' -->
     <div class="fg" id="tTeamSection" style="display:none;background:linear-gradient(135deg,rgba(59,130,246,0.05),rgba(99,102,241,0.05));border:1px solid rgba(59,130,246,0.2);border-radius:12px;padding:12px;">
@@ -8451,9 +8525,9 @@ async function stergeMaterialStoc(id) {
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/></svg>
     <div class="nav-label">Acasă</div>
   </div>
-  <div class="nav-item" id="navTasks" onclick="showTasks();_setNavActive('navTasks')">
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-    <div class="nav-label">Sarcini</div>
+  <div class="nav-item" id="navHistory" onclick="toggleHistoryDrawer();_setNavActive('navHistory')" style="display:none;">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+    <div class="nav-label">Istoric</div>
   </div>
   <!-- FAB doar pentru admin: buton rotund + label "Adaugă task" dedesubt -->
   <div class="nav-item nav-fab-wrap" id="navFab" onclick="openTaskModal()" style="display:none;">
