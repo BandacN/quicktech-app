@@ -3236,6 +3236,21 @@ async function loadTasks() {
   renderTasks();
   updateStats();
   loadMonthList();
+
+  // Actualizează și panoul de detalii dacă un task e deschis (esențial pentru Realtime)
+  if (selectedTaskId != null) {
+    const updated = allTasks.find(t => t.id === selectedTaskId);
+    if (updated) {
+      renderTaskDetail(updated);
+    } else {
+      // Task-ul nu mai există în lista curentă (ex: finalizat și ieșit din filtru) → golește panoul
+      selectedTaskId = null;
+      const detailEmpty = document.getElementById('detailEmpty');
+      const detailContent = document.getElementById('detailContent');
+      if (detailEmpty) detailEmpty.style.display = 'flex';
+      if (detailContent) detailContent.style.display = 'none';
+    }
+  }
 }
 
 async function loadNotifications() {
