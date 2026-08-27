@@ -6,8 +6,8 @@
 importScripts('https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.7.0/firebase-messaging-compat.js');
 
-const CACHE_NAME = 'quicktech-v39';
-const ASSETS = ['/index.html', '/manifest.json', '/icon-192.png', '/icon-512.png'];
+const CACHE_NAME = 'quicktech-v60';
+const ASSETS = ['/index.html', '/manifest.json', '/icon-192.png', '/icon-512.png', '/icon-notification.png'];
 
 firebase.initializeApp({
   apiKey: "AIzaSyAM8xNSobHhJHsrldPTTOuQy2NLno05taA",
@@ -20,7 +20,10 @@ firebase.initializeApp({
 
 const messaging = firebase.messaging();
 
-/* ─── PUSH NOTIFICATIONS (Firebase background message) ─── */
+/* ─── PUSH NOTIFICATIONS (Firebase background message) ───
+   Payload-ul e DATA-ONLY (fără "notification") pentru a preveni afișarea
+   dublă — dacă payload-ul are "notification", Firebase îl afișează automat
+   ÎNAINTE ca acest handler să ruleze, plus încă o dată aici = dublură. */
 messaging.onBackgroundMessage(async payload => {
   try {
     // Verifică dacă aplicația e deschisă în vreun tab vizibil
@@ -29,19 +32,25 @@ messaging.onBackgroundMessage(async payload => {
     // Dacă aplicația e activă pe ecran, lasă in-app să gestioneze (clopoțelul)
     if (appOpen) return;
 
-    const { title, body } = payload.notification || {};
     const data = payload.data || {};
+    const title = data.title || '🛡 QuickTech Security';
+    const body = data.body || 'Ai o notificare nouă';
 
-    await self.registration.showNotification(title || '🛡 QuickTech Security', {
-      body: body || 'Ai o notificare nouă',
+    await self.registration.showNotification(title, {
+      body: body,
+      // icon = imaginea mare, color, din corpul notificării
       icon: '/icon-192.png',
-      badge: '/icon-192.png',
+      // badge = silueta monocromă din bara de status. Android o randează
+      // ca formă albă, ignorând culorile — de aceea are nevoie de un fișier
+      // separat, alb pe transparent. Cu icon-192 aici apărea un pătrat alb.
+      badge: '/icon-notification.png',
       vibrate: [200, 100, 200],
       tag: data.tag || 'quicktech-notif',
       renotify: true,
-      requireInteraction: data.priority === 'priority',  // notif persistente pentru prioritare
+      requireInteraction: data.priority === 'priority',
       data: {
-        url: data.url || '/',
+        // URL cu ?task=ID — dacă app-ul nu e deschis, se lansează direct pe task
+        url: data.task_id ? `/?task=${data.task_id}` : (data.url || '/'),
         task_id: data.task_id || null,
         ts: Date.now()
       },

@@ -2313,15 +2313,42 @@ label {
 @keyframes stocFadeIn { from{opacity:0;transform:translateY(-8px);} to{opacity:1;transform:translateY(0);} }
 .stoc-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:12px; margin-top:16px; }
 .stoc-card { background:var(--surface); border-radius:12px; border:1.5px solid var(--border); padding:14px 16px; }
-.stoc-card.low-stock { border-color:#dc2626; background:#fef2f2; }
+/* Stoc redus: marcat prin bordură + bandă laterală, NU prin fundal fix —
+   un fundal deschis (#fef2f2) făcea textul ilizibil pe tema dark. */
+.stoc-card.low-stock {
+  border-color:#dc2626;
+  border-left:4px solid #dc2626;
+  background:var(--surface);
+  box-shadow:inset 0 0 0 100vmax rgba(220,38,38,0.06);
+}
 .stoc-card-name { font-weight:700; font-size:14px; color:var(--text); margin-bottom:4px; }
 .stoc-card-code { font-size:11px; color:var(--text-muted); font-family:monospace; }
 .stoc-card-qty { font-size:24px; font-weight:900; margin:8px 0 4px; }
-.stoc-card-qty.low { color:#dc2626; }
-.stoc-card-qty.ok { color:#16a34a; }
+.stoc-card-qty.low { color:var(--red); }
+.stoc-card-qty.ok { color:var(--green); }
 .stoc-card-actions { display:flex; gap:6px; margin-top:8px; }
-.stoc-tabs { display:flex; gap:8px; margin-bottom:16px; }
-.stoc-tab { padding:7px 16px; border-radius:20px; border:1.5px solid var(--border); background:var(--surface); color:var(--text-muted); font-size:13px; font-weight:600; cursor:pointer; }
+.stoc-tabs { display:flex; gap:8px; margin-bottom:16px; overflow-x:auto; -webkit-overflow-scrolling:touch; scrollbar-width:none; padding-bottom:2px; }
+.stoc-tabs::-webkit-scrollbar { display:none; }
+.stoc-tab { padding:8px 16px; border-radius:20px; border:1.5px solid var(--border); background:var(--surface); color:var(--text-muted); font-size:13px; font-weight:600; cursor:pointer; white-space:nowrap; flex-shrink:0; display:inline-flex; align-items:center; gap:6px; transition:all .15s; }
+.stoc-tab:hover { border-color:var(--brand-blue2); color:var(--accent); }
+
+/* Istoric mișcări — pe mobil tabelul se derulează orizontal, nu iese din ecran */
+.stoc-table-wrap { overflow-x:auto; -webkit-overflow-scrolling:touch; border-radius:12px; }
+.stoc-table-wrap table { min-width:520px; }
+
+@media (max-width: 640px) {
+  /* Pe telefon: grilă 2×2 în loc de scroll orizontal — toate tab-urile
+     vizibile dintr-o privire, fără să fie nevoie de derulare laterală. */
+  .stoc-tabs { display:grid; grid-template-columns:1fr 1fr; gap:8px; overflow-x:visible; }
+  .stoc-tab { padding:10px 8px; font-size:12px; justify-content:center; text-align:center; }
+  .stoc-table-wrap table th, .stoc-table-wrap table td { padding:8px 10px !important; font-size:11.5px !important; }
+  /* Zona de scanare mai compactă pe telefon */
+  .stoc-scan-zone { padding:22px 16px; border-radius:14px; }
+  .stoc-scan-input { padding:14px 16px; font-size:16px; }
+  .stoc-scan-hint { font-size:11.5px; }
+  /* Cardurile de material — o coloană, fără spații irosite */
+  .stoc-grid { grid-template-columns:1fr; gap:10px; }
+}
 .stoc-tab.active { background:var(--accent); color:#fff; border-color:var(--accent); }
 
 .toast {
@@ -2726,13 +2753,13 @@ label {
         </div>
       </div>
       <!-- LUNA CURENTĂ -->
-      <div class="sidebar-title">Luna curentă</div>
+      <div class="sidebar-title" id="sidebarLunaTitle">Luna curentă</div>
       <div class="sidebar-item active" id="sidebarCurrent" onclick="selectMonth('current',this)">
         <span class="si-icon">📋</span>
         <span id="currentMonthLabel">Luna aceasta</span>
       </div>
-      <div class="sidebar-divider"></div>
-      <div class="sb-collapse-hdr" onclick="toggleIstoricSection()">
+      <div class="sidebar-divider" id="sidebarDividerIstoric"></div>
+      <div class="sb-collapse-hdr" id="sidebarIstoricHdr" onclick="toggleIstoricSection()">
         <div class="sb-collapse-lbl">Istoric <span class="sb-collapse-count" id="istoricCount"></span></div>
         <span class="sb-collapse-arrow" id="istoricArrow">▶</span>
       </div>
@@ -2780,8 +2807,8 @@ label {
         <span class="sb-badge" id="stocBadge" style="display:none;"></span>
       </div>
       </div>
-      <div class="sidebar-divider"></div>
-      <div class="sidebar-title">Setări</div>
+      <div class="sidebar-divider" id="sidebarDividerSetari"></div>
+      <div class="sidebar-title" id="sidebarSetariTitle">Setări</div>
       <div class="sidebar-item" id="sidebarLocations" onclick="openLocationsModal()">
         <span class="si-icon">📍</span>
         <span>Locații salvate</span>
@@ -3034,19 +3061,12 @@ async function doRegister() {
   // SECURITATE: rolul NU se mai preia de la client. Orice cont creat public
   // primește obligatoriu 'technician'. Promovarea la admin se face doar de
   // un admin existent, din panoul Utilizatori (și e blocată suplimentar prin RLS).
+  const role = 'technician';
   if (!name||!email||!pass) { showErr('regErr','Completează toate câmpurile.'); return; }
-  if (pass.length < 8) { showErr('regErr','Parola trebuie să aibă minim 8 caractere.'); return; }
-
-  // Profilul se creează automat de trigger-ul `handle_new_user` din Postgres,
-  // cu rol forțat 'technician'. Numele ajunge acolo prin user_metadata.
-  // Insertul manual de aici a fost eliminat: se lovea de cheia primară
-  // creată de trigger și putea arunca eroare la înregistrare.
-  const { error } = await sb.auth.signUp({
-    email,
-    password: pass,
-    options: { data: { full_name: name } }
-  });
+  const { data, error } = await sb.auth.signUp({ email, password: pass });
   if (error) { showErr('regErr', error.message); return; }
+  // insert profile
+  await sb.from('profiles').insert({ id: data.user.id, full_name: name, role });
   showToast('Cont creat! Te poți conecta acum.','success');
   showLogin();
 }
@@ -3083,11 +3103,25 @@ async function showApp() {
     document.getElementById('sidebarUsers').style.display = 'none';
     const sbTeams = document.getElementById('sidebarTeams');
     if (sbTeams) sbTeams.style.display = 'none';
-    // Ascunde toate item-urile din sidebar, mai puțin stoc
-    ['sidebarTasks','sidebarAuto','sidebarMateriale','sidebarGarantii','sidebarMent','sidebarClienti','sidebarCereri'].forEach(id => {
+    // Ascunde TOT din sidebar în afară de Gestiune Stoc — contul de stație
+    // e o simplă interfață de scanare, nu are ce căuta în restul aplicației.
+    [
+      // Module
+      'sidebarTasks','sidebarSarcini','sidebarAuto','sidebarMateriale',
+      'sidebarGarantii','sidebarMent','sidebarClienti','sidebarCereri',
+      // Luna curentă + istoric
+      'sidebarLunaTitle','sidebarCurrent','sidebarDividerIstoric',
+      'sidebarIstoricHdr','monthList',
+      // Setări
+      'sidebarDividerSetari','sidebarSetariTitle','sidebarLocations','sidebarUsers','sidebarTeams',
+    ].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.style.display = 'none';
     });
+    // Ascunde și bara de navigare de jos (mobil) — nu are unde naviga
+    const bottomNav = document.querySelector('.bottom-nav');
+    if (bottomNav) bottomNav.style.display = 'none';
+    document.body.classList.add('no-bottom-nav');
     const moduleSection = document.getElementById('sidebarModuleSection');
     if (moduleSection) moduleSection.style.display = '';
     document.getElementById('sidebarStoc').style.display = '';
@@ -3104,7 +3138,7 @@ async function showApp() {
     return;
   }
 
-  document.getElementById('rolePill').textContent = isAdmin ? '👑 Admin' : '🔧 Tehnician';
+  document.getElementById('rolePill').textContent = isAdmin ? '👑 Admin' : roleLabel(currentProfile?.role);
   document.getElementById('rolePill').className = 'role-pill ' + (isAdmin ? 'role-admin' : 'role-tech');
   document.getElementById('addTaskBtn').style.display = isAdmin ? 'inline-flex' : 'none';
   document.getElementById('sidebarUsers').style.display = isAdmin ? 'flex' : 'none';
@@ -3122,7 +3156,7 @@ async function showApp() {
   const sbUserRole = document.getElementById('sbUserRole');
   if (sbUserAv) sbUserAv.textContent = (userName[0] || 'U').toUpperCase();
   if (sbUserName) sbUserName.textContent = userName.split(' ')[0];
-  if (sbUserRole) sbUserRole.textContent = isAdmin ? '👑 Administrator' : '🔧 Tehnician';
+  if (sbUserRole) sbUserRole.textContent = roleLabel(currentProfile?.role);
 
   // Ascunde module pentru tehnicieni
   const moduleSection = document.getElementById('sidebarModuleSection');
@@ -3630,7 +3664,7 @@ function renderTaskDetail(t) {
       ${t.phone ? `
         <div class="info-block">
           <div class="info-block-lbl">Telefon client</div>
-          <a class="info-block-val phone" href="tel:${encodeURIComponent(t.phone)}">📞 ${esc(t.phone)}</a>
+          <a class="info-block-val phone" href="tel:${t.phone}">📞 ${t.phone}</a>
         </div>
       ` : ''}
       ${t.description ? `
@@ -4137,7 +4171,7 @@ function renderNotifications() {
   }
   list.innerHTML = notifications.map(n => `
     <div class="np-item ${n.read?'':'unread'}" onclick="markRead(${n.id})">
-      <div class="np-msg">${esc(n.message)}</div>
+      <div class="np-msg">${n.message}</div>
       <div class="np-time">${timeAgo(n.created_at)}</div>
     </div>
   `).join('');
@@ -4254,24 +4288,6 @@ function esc(v) {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 }
-
-// ═══ EVENT DELEGATION ═══
-// Înlocuiește onclick="fn('${valoare_din_db}')". Interpolarea în atribute
-// onclick e fragilă: un apostrof într-un nume (O'Neill) rupe handler-ul,
-// iar un payload construit intenționat scapă din context și execută cod.
-// Cu data-* valoarea rămâne date, niciodată cod.
-document.addEventListener('click', e => {
-  const delUser = e.target.closest('.js-del-user');
-  if (delUser) {
-    deleteUser(delUser.dataset.id, delUser.dataset.name);
-    return;
-  }
-  const useLoc = e.target.closest('.js-use-loc');
-  if (useLoc) {
-    useLocation(useLoc.dataset.name, useLoc.dataset.address, useLoc.dataset.maps || '');
-    return;
-  }
-});
 
 function showToast(msg, type='info') {
   const t = document.getElementById('toast');
@@ -4390,10 +4406,7 @@ async function loadPhotos(taskId, isClosed) {
 // Verificăm tipul MIME real, extensia și dimensiunea.
 const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
 const ALLOWED_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'];
-// Limita de INTRARE. Compresia de mai jos aduce fișierul sub 10 MB
-// (limita reală de pe bucket). Fără marja asta, o poză de 12 MB ar fi
-// respinsă degeaba — după compresie ar avea sub 1 MB.
-const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 
 function validateImageFile(file) {
   const ext = (file.name.split('.').pop() || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -4412,63 +4425,11 @@ function validateImageFile(file) {
   return { ok: true, ext };
 }
 
-// ═══ COMPRESIE IMAGINI ÎNAINTE DE UPLOAD ═══
-// Un telefon modern produce 4–8 MB per poză. La 15 poze pe task, echipa
-// din teren consumă ~100 MB de date pe o singură intervenție. Redimensionarea
-// la max 1920px + JPEG 0.82 reduce tipic cu 85–92%, fără pierdere utilă de
-// detaliu (un număr de serie rămâne perfect lizibil).
-const COMPRESS_MAX_DIM     = 1920;
-const COMPRESS_QUALITY     = 0.82;
-const COMPRESS_SKIP_UNDER  = 400 * 1024;  // sub 400 KB nu merită efortul
-
-async function compressImage(file) {
-  const origExt = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '');
-
-  // Fișier deja mic → îl lăsăm neatins
-  if (file.size < COMPRESS_SKIP_UNDER) {
-    return { blob: file, ext: origExt, compressed: false, saved: 0 };
-  }
-
-  try {
-    // createImageBitmap respectă orientarea EXIF — altfel pozele făcute
-    // pe verticală ajung rotite după redesenarea pe canvas.
-    const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
-
-    const scale  = Math.min(1, COMPRESS_MAX_DIM / Math.max(bitmap.width, bitmap.height));
-    const width  = Math.round(bitmap.width  * scale);
-    const height = Math.round(bitmap.height * scale);
-
-    const canvas = document.createElement('canvas');
-    canvas.width  = width;
-    canvas.height = height;
-    const ctx = canvas.getContext('2d');
-    ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(bitmap, 0, 0, width, height);
-    bitmap.close();
-
-    const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', COMPRESS_QUALITY));
-
-    // Dacă rezultatul nu e mai mic (rar, la PNG-uri simple), păstrăm originalul
-    if (!blob || blob.size >= file.size) {
-      return { blob: file, ext: origExt, compressed: false, saved: 0 };
-    }
-
-    return { blob, ext: 'jpg', compressed: true, saved: file.size - blob.size };
-
-  } catch (err) {
-    // HEIC pe Android/Chrome nu poate fi decodat de canvas.
-    // Nu blocăm uploadul — urcăm originalul.
-    console.warn('[compressImage] fallback la original:', err.message);
-    return { blob: file, ext: origExt, compressed: false, saved: 0 };
-  }
-}
-
 async function uploadPhotos() {
   const taskId = document.getElementById('photosTaskId').value;
   const files = document.getElementById('photoInput').files;
   const progress = document.getElementById('uploadProgress');
   progress.style.display = 'block';
-  let totalSaved = 0;   // octeți economisiți prin compresie
   for (const file of files) {
     // Validare: tip, extensie, dimensiune
     const check = validateImageFile(file);
@@ -4478,24 +4439,14 @@ async function uploadPhotos() {
     }
     // Nume aleator, nu cel original — previne enumerarea fișierelor
     // și problemele de interpolare în HTML (vezi P4/P7).
-    // Compresie: 1920px max, JPEG 0.82 (vezi compressImage)
-    const comp = await compressImage(file);
-    totalSaved += comp.saved;
-    const name = `${crypto.randomUUID()}.${comp.ext}`;
-    await sb.storage.from('task-photos').upload(`task-${taskId}/${name}`, comp.blob, {
-      contentType: comp.compressed ? 'image/jpeg' : file.type
-    });
+    const name = `${crypto.randomUUID()}.${check.ext}`;
+    await sb.storage.from('task-photos').upload(`task-${taskId}/${name}`, file);
   }
   progress.style.display = 'none';
   document.getElementById('photoInput').value = '';
   await loadPhotos(taskId);
   renderTaskDetail(allTasks.find(t => t.id === Number(taskId))); // refresh thumbnailuri din panou
-  showToast(
-    totalSaved > 0
-      ? `Poze încărcate! ✅ (${(totalSaved / 1024 / 1024).toFixed(1)} MB economisiți)`
-      : 'Poze încărcate! ✅',
-    'success'
-  );
+  showToast('Poze încărcate! ✅', 'success');
 }
 
 // ── Thumbnailuri poze în panoul de detalii (dreapta) ──
@@ -4538,12 +4489,8 @@ async function uploadDetailPhotos(taskId) {
     }
     // Nume aleator, nu cel original — previne enumerarea fișierelor
     // și problemele de interpolare în HTML (vezi P4/P7).
-    // Compresie: 1920px max, JPEG 0.82 (vezi compressImage)
-    const comp = await compressImage(file);
-    const name = `${crypto.randomUUID()}.${comp.ext}`;
-    const { error } = await sb.storage.from('task-photos').upload(`task-${taskId}/${name}`, comp.blob, {
-      contentType: comp.compressed ? 'image/jpeg' : file.type
-    });
+    const name = `${crypto.randomUUID()}.${check.ext}`;
+    const { error } = await sb.storage.from('task-photos').upload(`task-${taskId}/${name}`, file);
     if (error) console.warn('Upload error:', error.message);
   }
   input.value = '';
@@ -4582,12 +4529,8 @@ async function uploadPendingTaskPhotos(taskId) {
     }
     // Nume aleator, nu cel original — previne enumerarea fișierelor
     // și problemele de interpolare în HTML (vezi P4/P7).
-    // Compresie: 1920px max, JPEG 0.82 (vezi compressImage)
-    const comp = await compressImage(file);
-    const name = `${crypto.randomUUID()}.${comp.ext}`;
-    const { error } = await sb.storage.from('task-photos').upload(`task-${taskId}/${name}`, comp.blob, {
-      contentType: comp.compressed ? 'image/jpeg' : file.type
-    });
+    const name = `${crypto.randomUUID()}.${check.ext}`;
+    const { error } = await sb.storage.from('task-photos').upload(`task-${taskId}/${name}`, file);
     if (error) console.warn('[uploadPendingTaskPhotos] eroare upload:', error.message);
     else okCount++;
   }
@@ -4616,15 +4559,25 @@ async function loadUsers() {
   list.innerHTML = data.map(u => `
     <div class="user-card">
       <div class="user-info">
-        <div class="avatar" style="background:${avatarColor(u.full_name)}">${esc((u.full_name||'?').split(' ').map(w=>w[0]||'').join('').toUpperCase().slice(0,2))}</div>
+        <div class="avatar" style="background:${avatarColor(u.full_name)}">${u.full_name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2)}</div>
         <div>
-          <div style="font-size:14px;font-weight:500;">${esc(u.full_name)}</div>
-          <div style="font-size:12px;color:var(--text-muted);">${u.role === 'admin' ? '👑 Administrator' : '🔧 Tehnician'}</div>
+          <div style="font-size:14px;font-weight:500;">${u.full_name}</div>
+          <div style="font-size:12px;color:var(--text-muted);">${roleLabel(u.role)}</div>
         </div>
       </div>
-      ${u.id !== currentUser.id ? `<button class="btn btn-danger btn-sm js-del-user" data-id="${esc(u.id)}" data-name="${esc(u.full_name)}">✕</button>` : '<span style="font-size:11px;color:var(--text-muted);">Tu</span>'}
+      ${u.id !== currentUser.id ? `<button class="btn btn-danger btn-sm" onclick="deleteUser('${u.id}','${u.full_name}')">✕</button>` : '<span style="font-size:11px;color:var(--text-muted);">Tu</span>'}
     </div>
   `).join('');
+}
+
+// Etichetă afișată pentru fiecare rol (inclusiv rolul 'stoc' — stație scanare)
+function roleLabel(role) {
+  const map = {
+    admin: '👑 Administrator',
+    technician: '🔧 Tehnician',
+    stoc: '📦 Stație Scanare',
+  };
+  return map[role] || '🔧 Tehnician';
 }
 
 async function addUser() {
@@ -4638,33 +4591,20 @@ async function addUser() {
   const pass = document.getElementById('newUserPass').value;
   const role = document.getElementById('newUserRole').value;
   if (!name||!email||!pass) { showToast('Completează toate câmpurile!','info'); return; }
-  if (pass.length < 8) { showToast('Parola trebuie să aibă minim 8 caractere.','info'); return; }
+  const { data, error } = await sb.auth.signUp({ email, password: pass });
+  if (error) { showToast('Eroare: '+error.message,'info'); return; }
 
-  // Creare prin edge function, nu signUp.
-  // signUp ar loga sesiunea curentă ca noul utilizator — adminul se
-  // trezea deconectat. auth.admin.createUser() (server-side) nu face asta.
-  // În plus, rolul se validează pe server, nu doar în interfață.
-  const { data: { session } } = await sb.auth.getSession();
-  if (!session?.access_token) { showToast('Sesiune expirată. Reconectează-te.','error'); return; }
-
-  showToast('Se creează contul...', 'info');
-  let res;
-  try {
-    const resp = await fetch(`${SUPABASE_URL}/functions/v1/manage-users`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${session.access_token}`,
-        'apikey': SUPABASE_KEY,
-      },
-      body: JSON.stringify({ action: 'create', email, password: pass, full_name: name, role }),
-    });
-    res = await resp.json();
-  } catch (err) {
-    showToast('Eroare de rețea: ' + err.message, 'error');
-    return;
+  // Trigger-ul de securitate `handle_new_user()` creează deja profilul la
+  // signUp, forțat cu rol 'technician' (previne escaladarea de privilegii
+  // din formularul public). Aici, adminul poate seta rolul real dorit —
+  // politica RLS "admin editeaza orice profil" permite asta.
+  const { error: roleErr } = await sb.from('profiles')
+    .update({ full_name: name, role })
+    .eq('id', data.user.id);
+  if (roleErr) {
+    // Fallback: dacă trigger-ul nu e activ pe acest mediu, inserăm normal
+    await sb.from('profiles').insert({ id: data.user.id, full_name: name, role });
   }
-  if (!res?.ok) { showToast('Eroare: ' + (res?.error || 'necunoscută'), 'error'); return; }
 
   document.getElementById('newUserName').value='';
   document.getElementById('newUserEmail').value='';
@@ -4718,7 +4658,7 @@ function renderTeamsList() {
         <div class="user-info" style="flex:1;">
           <div class="avatar" style="background:linear-gradient(135deg,#1E5FD9,#3B82F6);">🛡️</div>
           <div style="flex:1;min-width:0;">
-            <div style="font-size:14px;font-weight:600;">${esc(t.name)}</div>
+            <div style="font-size:14px;font-weight:600;">${t.name}</div>
             <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${(t.member_ids || []).length} membri: ${memberNames}</div>
           </div>
         </div>
@@ -4743,7 +4683,7 @@ function renderTeamMembersChecklist(selectedIds = []) {
     <label style="display:flex;align-items:center;gap:8px;padding:6px 4px;cursor:pointer;border-radius:6px;" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
       <input type="checkbox" class="team-member-chk" value="${t.id}" ${selectedIds.includes(t.id) ? 'checked' : ''} style="width:16px;height:16px;cursor:pointer;">
       <div class="avatar" style="width:26px;height:26px;font-size:10px;background:${avatarColor(t.full_name)};">${t.full_name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2)}</div>
-      <span style="font-size:13px;">${esc(t.full_name)}</span>
+      <span style="font-size:13px;">${t.full_name}</span>
     </label>
   `).join('');
 }
@@ -4846,7 +4786,7 @@ function renderTaskTeamMembers(selectedIds = []) {
     <label style="display:flex;align-items:center;gap:8px;padding:6px 4px;cursor:pointer;border-radius:6px;" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
       <input type="checkbox" class="task-team-chk" value="${p.id}" ${selectedIds.includes(p.id) ? 'checked' : ''} style="width:16px;height:16px;cursor:pointer;">
       <div class="avatar" style="width:24px;height:24px;font-size:10px;background:${avatarColor(p.full_name)};">${p.full_name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2)}</div>
-      <span style="font-size:13px;">${esc(p.full_name)}</span>
+      <span style="font-size:13px;">${p.full_name}</span>
     </label>
   `).join('');
 }
@@ -4859,35 +4799,40 @@ function getSelectedTeamMemberIds() {
 
 
 async function deleteUser(id, name) {
-  if (!await confirmModal(`Ștergi tehnicianul ${name}?\n\nATENȚIE: se vor șterge contul, task-urile atribuite lui, cererile de materiale și de absență. Acțiunea e ireversibilă.`)) return;
+  if (!await confirmModal(`Ștergi tehnicianul ${name}?\n\nATENȚIE: se vor șterge și toate task-urile atribuite lui.`)) return;
 
-  // Ștergerea trece prin edge function: din client se putea șterge doar
-  // rândul din `profiles`, iar contul rămânea în auth.users — utilizatorul
-  // se mai putea loga, fără profil, iar aplicația se comporta imprevizibil.
-  const { data: { session } } = await sb.auth.getSession();
-  if (!session?.access_token) { showToast('Sesiune expirată. Reconectează-te.', 'error'); return; }
-
-  showToast('Se șterge contul...', 'info');
   try {
-    const resp = await fetch(`${SUPABASE_URL}/functions/v1/manage-users`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${session.access_token}`,
-        'apikey': SUPABASE_KEY,
-      },
-      body: JSON.stringify({ action: 'delete', user_id: id }),
-    });
-    const res = await resp.json();
-    if (!res?.ok) throw new Error(res?.error || 'Eroare necunoscută');
+    // 1. Șterg task-urile atribuite direct tehnicianului
+    const { error: tErr } = await sb.from('tasks').delete().eq('technician_id', id);
+    if (tErr) throw new Error('Ștergere task-uri: ' + tErr.message);
+
+    // 2. Îl scot din echipele unde e membru (team_member_ids), ca să nu rămână referințe
+    try {
+      const { data: teamTasks } = await sb.from('tasks').select('id, team_member_ids')
+        .contains('team_member_ids', [id]);
+      for (const tt of (teamTasks || [])) {
+        const cleaned = (tt.team_member_ids || []).filter(m => m !== id);
+        await sb.from('tasks').update({ team_member_ids: cleaned }).eq('id', tt.id);
+      }
+    } catch (teamErr) {
+      console.warn('[deleteUser] curățare echipe (ignorat):', teamErr.message);
+    }
+
+    // 3. Șterg profilul (cu .select() ca să știu câte rânduri s-au șters efectiv)
+    const { data: deleted, error: pErr } = await sb.from('profiles').delete().eq('id', id).select();
+    if (pErr) throw new Error('Ștergere profil: ' + pErr.message);
+    if (!deleted || deleted.length === 0) {
+      throw new Error('Profilul NU a fost șters (0 rânduri afectate). Cauza tipică: politică RLS lipsă pe tabela profiles. Rulează SQL-ul 02_rls_delete_profiles.sql în Supabase.');
+    }
 
     await loadUsers();
     await loadProfiles();
     await loadTasks();
-    showToast(`${name} șters complet.`, 'success');
+    showToast(`${name} șters.`, 'success');
   } catch (err) {
-    console.error('[deleteUser]', err);
+    console.error('[deleteUser] eroare:', err);
     showToast('Nu s-a putut șterge: ' + err.message, 'error');
+    await confirmModal('Eroare la ștergere:\n\n' + err.message + '\n\n(Dacă apare "violates row-level security", e o politică RLS în Supabase care blochează ștergerea — îți spun cum o rezolvi.)');
   }
 }
 
@@ -4904,10 +4849,10 @@ async function loadLocations() {
   const list = document.getElementById('locationsList');
   if (!data || !data.length) { list.innerHTML = '<div style="color:var(--text-muted);font-size:13px;text-align:center;padding:16px;">Nicio locație salvată</div>'; return; }
   list.innerHTML = data.map(l => `
-    <div class="loc-item js-use-loc" data-name="${esc(l.name)}" data-address="${esc(l.address)}" data-maps="${esc(l.maps_link || '')}">
+    <div class="loc-item" onclick="useLocation('${l.name}','${l.address}','${l.maps_link||""}')">
       <div>
-        <div style="font-size:13px;font-weight:500;">📍 ${esc(l.name)}</div>
-        <div style="font-size:12px;color:var(--text-muted);">${esc(l.address)}</div>
+        <div style="font-size:13px;font-weight:500;">📍 ${l.name}</div>
+        <div style="font-size:12px;color:var(--text-muted);">${l.address}</div>
       </div>
       <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteLocation(${l.id})">✕</button>
     </div>
@@ -5758,8 +5703,8 @@ function renderReparatii(vehiculId) {
             ${currentProfile?.role==='admin'?`<button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:11px;" onclick="deleteRep('${r.id}','${vehiculId}')">✕</button>`:''}
           </div>
         </div>
-        <div class="rep-item-desc">${esc(r.descriere)}</div>
-        ${r.service ? `<div class="rep-item-meta">🏪 ${esc(r.service)}</div>` : ''}
+        <div class="rep-item-desc">${r.descriere}</div>
+        ${r.service ? `<div class="rep-item-meta">🏪 ${r.service}</div>` : ''}
       </div>`).join('')}
   </div>`;
 }
@@ -8042,6 +7987,7 @@ function setStocTab(tab) {
   stocTab = tab;
   renderStocPage();
   if (tab === 'scan') setTimeout(() => document.getElementById('stocScanInput')?.focus(), 100);
+  if (tab === 'verifica') setTimeout(() => document.getElementById('verificaInput')?.focus(), 100);
 }
 
 function renderStocPage() {
@@ -8053,12 +7999,14 @@ function renderStocPage() {
     <div class="stoc-tabs">
       <div class="stoc-tab ${stocTab==='scan'?'active':''}" onclick="setStocTab('scan')">📷 Scanează</div>
       <div class="stoc-tab ${stocTab==='list'?'active':''}" onclick="setStocTab('list')">📋 Listă materiale</div>
+      <div class="stoc-tab ${stocTab==='verifica'?'active':''}" onclick="setStocTab('verifica')">🔍 Verifică stoc</div>
       ${isAdmin ? `<div class="stoc-tab ${stocTab==='istoric'?'active':''}" onclick="setStocTab('istoric')">🕐 Istoric mișcări</div>` : ''}
     </div>
     <div id="stocTabContent"></div>
   `;
 
   if (stocTab === 'scan') renderStocScan();
+  else if (stocTab === 'verifica') renderStocVerifica();
   else if (stocTab === 'list') renderStocList();
   else if (stocTab === 'istoric') renderStocIstoric();
 }
@@ -8108,13 +8056,23 @@ async function processStocScan(code) {
   const mode = document.getElementById('stocScanMode')?.value || 'iesire';
   const resultEl = document.getElementById('stocLastResult');
 
-  const material = allStoc.find(m => m.cod_bare === code);
+  // Caută atât după codul principal, cât și după codurile alternative.
+  // Același produs fizic poate avea EAN-uri diferite (furnizori/ambalaje
+  // diferite) — toate scad din același stoc.
+  const material = allStoc.find(m =>
+    m.cod_bare === code || (Array.isArray(m.coduri_alt) && m.coduri_alt.includes(code))
+  );
 
   if (!material) {
-    // Material necunoscut → deschide formular nou cu codul pre-completat
+    // Material necunoscut. Doar adminul poate adăuga materiale noi —
+    // stația de scanare doar înregistrează ieșiri din stocul existent.
     resultEl.className = 'stoc-last-result warn show';
-    resultEl.innerHTML = `<strong>⚠ Cod necunoscut: ${code}</strong><br>Adaugă materialul nou mai jos.`;
-    openMaterialNouModal(code);
+    if (currentProfile?.role === 'admin') {
+      resultEl.innerHTML = `<strong>⚠ Cod necunoscut: ${esc(code)}</strong><br>Adaugă materialul nou mai jos.`;
+      openMaterialNouModal(code);
+    } else {
+      resultEl.innerHTML = `<strong>⚠ Cod necunoscut: ${esc(code)}</strong><br>Materialul nu există în stoc. Anunță administratorul să îl adauge.`;
+    }
     return;
   }
 
@@ -8148,10 +8106,12 @@ async function processStocScan(code) {
   material.stoc_curent = newStoc;
   const isLow = newStoc <= material.stoc_minim;
 
+  const viaAlt = material.cod_bare !== code;
   resultEl.className = `stoc-last-result ${isLow ? 'warn' : 'ok'} show`;
   resultEl.innerHTML = `
-    <strong>${mode === 'intrare' ? '📥' : '📤'} ${material.nume}</strong><br>
+    <strong>${mode === 'intrare' ? '📥' : '📤'} ${esc(material.nume)}</strong><br>
     Stoc rămas: <strong style="font-size:18px;">${newStoc} buc</strong>
+    ${viaAlt ? `<br><span style="font-size:11px;color:#0369a1;">↳ cod alternativ: ${esc(code)}</span>` : ''}
     ${isLow ? '<br><span style="color:#dc2626;font-weight:700;">⚠ Stoc sub limita minimă!</span>' : ''}
   `;
 
@@ -8172,6 +8132,86 @@ async function processStocScan(code) {
   }
 }
 
+// ═══ VERIFICĂ STOC — căutare rapidă fără a modifica nimic ═══
+// Util când ești pe teren și vrei să știi dacă un produs mai e în depozit,
+// fără riscul de a scădea din stoc din greșeală.
+function renderStocVerifica() {
+  const content = document.getElementById('stocTabContent');
+  content.innerHTML = `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px;margin-bottom:14px;">
+      <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px;">🔍 Verifică disponibilitate</div>
+      <div style="font-size:11.5px;color:var(--text-muted);margin-bottom:12px;">
+        Caută după nume sau scanează codul — <b>nu modifică stocul</b>.
+      </div>
+      <div style="display:flex;gap:8px;">
+        <input type="text" id="verificaInput" class="form-control" style="flex:1;margin-bottom:0;"
+               placeholder="ex: telecomandă, cablu UTP, sau scanează codul..."
+               oninput="renderVerificaRezultate()">
+        <button class="btn btn-ghost" style="flex-shrink:0;" onclick="document.getElementById('verificaInput').value='';renderVerificaRezultate();document.getElementById('verificaInput').focus()">✕</button>
+      </div>
+    </div>
+    <div id="verificaRezultate"></div>
+  `;
+  renderVerificaRezultate();
+}
+
+function renderVerificaRezultate() {
+  const el = document.getElementById('verificaRezultate');
+  if (!el) return;
+  const q = (document.getElementById('verificaInput')?.value || '').toLowerCase().trim();
+
+  if (!q) {
+    el.innerHTML = `<div style="text-align:center;padding:36px 20px;color:var(--text-muted);">
+      <div style="font-size:38px;opacity:.35;margin-bottom:8px;">🔍</div>
+      <div style="font-size:13px;font-weight:600;">Scrie sau scanează pentru a verifica stocul</div>
+    </div>`;
+    return;
+  }
+
+  // Caută în nume, cod principal și coduri alternative
+  const rez = allStoc.filter(m =>
+    (m.nume || '').toLowerCase().includes(q) ||
+    (m.cod_bare || '').toLowerCase().includes(q) ||
+    (Array.isArray(m.coduri_alt) && m.coduri_alt.some(cd => cd.toLowerCase().includes(q)))
+  );
+
+  if (!rez.length) {
+    el.innerHTML = `<div style="text-align:center;padding:36px 20px;color:var(--text-muted);">
+      <div style="font-size:38px;opacity:.35;margin-bottom:8px;">📭</div>
+      <div style="font-size:13px;font-weight:600;">Niciun material găsit pentru "${esc(q)}"</div>
+    </div>`;
+    return;
+  }
+
+  el.innerHTML = rez.map(m => {
+    const stoc = m.stoc_curent ?? 0;
+    const minim = m.stoc_minim ?? 0;
+    let culoare, fundal, eticheta;
+    // Culorile vin din variabilele temei — se adaptează automat light/dark
+    if (stoc <= 0)          { culoare = 'var(--red)';   fundal = 'var(--red-bg)';   eticheta = 'EPUIZAT'; }
+    else if (stoc <= minim) { culoare = 'var(--amber)'; fundal = 'var(--amber-bg)'; eticheta = 'STOC REDUS'; }
+    else                    { culoare = 'var(--green)'; fundal = 'var(--green-bg)'; eticheta = 'DISPONIBIL'; }
+
+    const codAlt = (m.coduri_alt && m.coduri_alt.length)
+      ? `<div style="font-size:10.5px;color:#0369a1;font-family:monospace;margin-top:2px;">alt: ${m.coduri_alt.map(x => esc(x)).join(' · ')}</div>` : '';
+
+    return `
+      <div style="background:var(--surface);border:1px solid var(--border);border-left:4px solid ${culoare};border-radius:12px;padding:14px 16px;margin-bottom:8px;display:flex;align-items:center;gap:14px;">
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:14px;font-weight:700;color:var(--text);">${esc(m.nume)}</div>
+          ${m.cod_bare ? `<div style="font-size:11px;color:var(--text-muted);font-family:monospace;margin-top:2px;">${esc(m.cod_bare)}</div>` : ''}
+          ${codAlt}
+          ${m.nota ? `<div style="font-size:11px;color:var(--text-muted);font-style:italic;margin-top:4px;">${esc(m.nota)}</div>` : ''}
+        </div>
+        <div style="text-align:right;flex-shrink:0;">
+          <div style="font-size:26px;font-weight:800;color:${culoare};line-height:1;">${stoc}</div>
+          <div style="font-size:10px;color:var(--text-muted);font-weight:600;margin-top:2px;">${m.unitate || 'buc'}</div>
+          <div style="display:inline-block;margin-top:6px;background:${fundal};color:${culoare};font-size:9px;font-weight:700;padding:3px 8px;border-radius:20px;letter-spacing:.3px;">${eticheta}</div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
 function renderStocList() {
   const content = document.getElementById('stocTabContent');
   const isAdmin = currentProfile?.role === 'admin';
@@ -8187,6 +8227,7 @@ function renderStocList() {
         <div class="stoc-card ${isLow ? 'low-stock' : ''}">
           <div class="stoc-card-name">${esc(m.nume)}</div>
           ${m.cod_bare ? `<div class="stoc-card-code">${esc(m.cod_bare)}</div>` : ''}
+          ${(m.coduri_alt && m.coduri_alt.length) ? `<div class="stoc-card-code" style="color:#0369a1;">+${m.coduri_alt.length} cod${m.coduri_alt.length === 1 ? '' : 'uri'} alt.</div>` : ''}
           <div class="stoc-card-qty ${isLow ? 'low' : 'ok'}">${m.stoc_curent} ${m.unitate || 'buc'}</div>
           <div style="font-size:11px;color:var(--text-muted);">Minim: ${m.stoc_minim} ${m.unitate || 'buc'}</div>
           ${isAdmin ? `
@@ -8206,8 +8247,9 @@ function renderStocList() {
 function filterStocList() {
   const val = document.getElementById('stocSearch').value.toLowerCase();
   document.querySelectorAll('#stocGridList .stoc-card').forEach(card => {
-    const name = card.querySelector('.stoc-card-name').textContent.toLowerCase();
-    card.style.display = name.includes(val) ? '' : 'none';
+    // Caută în nume ȘI în toate codurile afișate pe card
+    const txt = card.textContent.toLowerCase();
+    card.style.display = txt.includes(val) ? '' : 'none';
   });
 }
 
@@ -8220,31 +8262,40 @@ async function renderStocIstoric() {
     .order('created_at', { ascending: false })
     .limit(100);
 
-  const rows = (data || []).map(m => `
+  const rows = (data || []).map(m => {
+    const d = new Date(m.created_at);
+    const dataStr = d.toLocaleDateString('ro-RO', { day:'2-digit', month:'2-digit', year:'numeric' });
+    const oraStr = d.toLocaleTimeString('ro-RO', { hour:'2-digit', minute:'2-digit' });
+    return `
     <tr>
-      <td style="padding:8px 12px;border-bottom:1px solid var(--border);">${m.materiale_stoc?.nume || '—'}</td>
-      <td style="padding:8px 12px;border-bottom:1px solid var(--border);">
-        <span style="color:${m.tip==='intrare'?'#16a34a':'#dc2626'};font-weight:700;">
+      <td style="padding:10px 12px;border-bottom:1px solid var(--border);font-weight:600;">${esc(m.materiale_stoc?.nume) || '—'}</td>
+      <td style="padding:10px 12px;border-bottom:1px solid var(--border);white-space:nowrap;">
+        <span style="color:${m.tip==='intrare'?'#16a34a':'#dc2626'};font-weight:700;font-size:12px;">
           ${m.tip==='intrare'?'📥 Intrare':'📤 Ieșire'}
         </span>
       </td>
-      <td style="padding:8px 12px;border-bottom:1px solid var(--border);">${m.cantitate}</td>
-      <td style="padding:8px 12px;border-bottom:1px solid var(--border);">${m.profiles?.full_name || '—'}</td>
-      <td style="padding:8px 12px;border-bottom:1px solid var(--border);font-size:12px;color:var(--text-muted);">${new Date(m.created_at).toLocaleString('ro-RO')}</td>
-    </tr>
-  `).join('');
+      <td style="padding:10px 12px;border-bottom:1px solid var(--border);text-align:center;font-weight:700;">${m.cantitate}</td>
+      <td style="padding:10px 12px;border-bottom:1px solid var(--border);white-space:nowrap;">${esc(m.profiles?.full_name) || '—'}</td>
+      <td style="padding:10px 12px;border-bottom:1px solid var(--border);font-size:11.5px;color:var(--text-muted);white-space:nowrap;">
+        ${dataStr}<br><span style="opacity:.75;">${oraStr}</span>
+      </td>
+    </tr>`;
+  }).join('');
 
+  // Wrapper cu scroll orizontal — pe telefon tabelul nu mai iese din ecran
   content.innerHTML = `
-    <table style="width:100%;border-collapse:collapse;background:var(--surface);border-radius:12px;overflow:hidden;">
-      <thead><tr style="background:var(--surface2);">
-        <th style="text-align:left;padding:8px 12px;font-size:12px;color:var(--text-muted);">Material</th>
-        <th style="text-align:left;padding:8px 12px;font-size:12px;color:var(--text-muted);">Tip</th>
-        <th style="text-align:left;padding:8px 12px;font-size:12px;color:var(--text-muted);">Cant.</th>
-        <th style="text-align:left;padding:8px 12px;font-size:12px;color:var(--text-muted);">User</th>
-        <th style="text-align:left;padding:8px 12px;font-size:12px;color:var(--text-muted);">Data</th>
-      </tr></thead>
-      <tbody>${rows || '<tr><td colspan="5" style="padding:20px;text-align:center;color:var(--text-muted);">Nicio mișcare înregistrată.</td></tr>'}</tbody>
-    </table>
+    <div class="stoc-table-wrap" style="background:var(--surface);border:1px solid var(--border);">
+      <table style="width:100%;border-collapse:collapse;">
+        <thead><tr style="background:var(--surface2);">
+          <th style="text-align:left;padding:10px 12px;font-size:12px;color:var(--text-muted);white-space:nowrap;">Material</th>
+          <th style="text-align:left;padding:10px 12px;font-size:12px;color:var(--text-muted);white-space:nowrap;">Tip</th>
+          <th style="text-align:center;padding:10px 12px;font-size:12px;color:var(--text-muted);white-space:nowrap;">Cant.</th>
+          <th style="text-align:left;padding:10px 12px;font-size:12px;color:var(--text-muted);white-space:nowrap;">User</th>
+          <th style="text-align:left;padding:10px 12px;font-size:12px;color:var(--text-muted);white-space:nowrap;">Data</th>
+        </tr></thead>
+        <tbody>${rows || '<tr><td colspan="5" style="padding:20px;text-align:center;color:var(--text-muted);">Nicio mișcare înregistrată.</td></tr>'}</tbody>
+      </table>
+    </div>
   `;
 }
 
@@ -8260,7 +8311,15 @@ function openMaterialNouModal(prefillCode, editId) {
     '<button class="modal-close" onclick="document.getElementById(\'materialStocOverlay\').remove()">✕</button></div>',
     '<div class="modal-body">',
     '<div class="fg"><label>Nume material *</label><input type="text" id="msNume" class="form-control" value="' + (m?.nume||'') + '" placeholder="ex: Cablu UTP cat6"></div>',
-    '<div class="fg"><label>Cod de bare</label><input type="text" id="msCod" class="form-control" value="' + (m?.cod_bare || prefillCode || '') + '" placeholder="Scanează sau lasă gol pt. auto-generare"></div>',
+    '<div class="fg"><label>Cod de bare principal</label><input type="text" id="msCod" class="form-control" value="' + (m?.cod_bare || prefillCode || '') + '" placeholder="📷 Scanează sau lasă gol pt. auto-generare"></div>',
+    '<div class="fg"><label>Coduri alternative <span style="font-weight:500;text-transform:none;letter-spacing:normal;color:var(--text-muted);">(același produs, alt ambalaj/furnizor)</span></label>',
+    '<div style="display:flex;gap:6px;margin-bottom:6px;">',
+    '<input type="text" id="msCodScan" class="form-control" style="flex:1;margin-bottom:0;" placeholder="Scanează sau tastează codul, apoi Enter">',
+    '<button type="button" class="btn btn-ghost" style="flex-shrink:0;padding:0 14px;" onclick="adaugaCodAlt()">＋ Adaugă</button>',
+    '</div>',
+    '<div id="msCoduriAltList" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px;"></div>',
+    '<input type="hidden" id="msCoduriAlt" value="' + ((m?.coduri_alt || []).join(',')) + '">',
+    '<div style="font-size:11px;color:var(--text-muted);margin-bottom:10px;">📷 Pune cursorul în câmp și scanează codul de pe ambalaj — se adaugă automat. Scanarea oricăruia dintre aceste coduri scade din <b>același stoc</b>.</div></div>',
     '<div class="form-row">',
     '<div class="fg"><label>Stoc inițial</label><input type="number" id="msStoc" class="form-control" value="' + (m?.stoc_curent ?? 0) + '" min="0"></div>',
     '<div class="fg"><label>Stoc minim (alertă)</label><input type="number" id="msMinim" class="form-control" value="' + (m?.stoc_minim ?? 5) + '" min="0"></div>',
@@ -8273,6 +8332,83 @@ function openMaterialNouModal(prefillCode, editId) {
     '</div></div>',
   ].join('');
   document.body.appendChild(overlay);
+
+  // Randează codurile existente ca "chips" și pregătește câmpul de scanare
+  renderCoduriAlt();
+  const scanInput = document.getElementById('msCodScan');
+  if (scanInput) {
+    // Scannerul trimite codul + Enter automat → adăugăm pe loc
+    scanInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); adaugaCodAlt(); }
+    });
+  }
+}
+
+// ── Coduri alternative: adăugare prin scanare/tastare + ștergere ──
+function getCoduriAlt() {
+  const raw = document.getElementById('msCoduriAlt')?.value || '';
+  return raw.split(',').map(s => s.trim()).filter(Boolean);
+}
+
+function setCoduriAlt(arr) {
+  const el = document.getElementById('msCoduriAlt');
+  if (el) el.value = arr.join(',');
+  renderCoduriAlt();
+}
+
+function renderCoduriAlt() {
+  const list = document.getElementById('msCoduriAltList');
+  if (!list) return;
+  const arr = getCoduriAlt();
+  if (!arr.length) {
+    list.innerHTML = '<span style="font-size:11.5px;color:var(--text-muted);">Niciun cod alternativ adăugat.</span>';
+    return;
+  }
+  list.innerHTML = arr.map((cd, i) => `
+    <span style="display:inline-flex;align-items:center;gap:6px;background:var(--accent-dim);color:var(--accent);border:1px solid rgba(30,95,217,0.2);border-radius:20px;padding:4px 8px 4px 11px;font-size:11.5px;font-weight:700;font-family:monospace;">
+      ${esc(cd)}
+      <button type="button" onclick="stergeCodAlt(${i})" title="Șterge"
+        style="border:none;background:rgba(30,95,217,0.15);color:var(--accent);width:16px;height:16px;border-radius:50%;cursor:pointer;font-size:10px;line-height:1;display:flex;align-items:center;justify-content:center;">✕</button>
+    </span>`).join('');
+}
+
+function adaugaCodAlt() {
+  const input = document.getElementById('msCodScan');
+  if (!input) return;
+  const cod = input.value.trim();
+  input.value = '';
+  input.focus(); // rămâne activ pentru scanarea următoare
+  if (!cod) return;
+
+  const arr = getCoduriAlt();
+  const codPrincipal = document.getElementById('msCod')?.value.trim();
+
+  if (cod === codPrincipal) {
+    showToast('Acesta e deja codul principal.', 'info');
+    return;
+  }
+  if (arr.includes(cod)) {
+    showToast('Codul e deja în listă.', 'info');
+    return;
+  }
+  // Verifică să nu fie folosit la alt material
+  const conflict = allStoc.find(m =>
+    m.cod_bare === cod || (Array.isArray(m.coduri_alt) && m.coduri_alt.includes(cod))
+  );
+  if (conflict) {
+    showToast(`Cod folosit deja la "${conflict.nume}".`, 'error');
+    return;
+  }
+
+  arr.push(cod);
+  setCoduriAlt(arr);
+  showToast(`Cod adăugat: ${cod}`, 'success');
+}
+
+function stergeCodAlt(idx) {
+  const arr = getCoduriAlt();
+  arr.splice(idx, 1);
+  setCoduriAlt(arr);
 }
 
 function editMaterialStoc(id) { openMaterialNouModal(null, id); }
@@ -8287,9 +8423,27 @@ async function saveMaterialStoc(existingId) {
     cod = 'QTM-' + Date.now().toString().slice(-6);
   }
 
+  const codAltRaw = document.getElementById('msCoduriAlt')?.value || '';
+  const codAltArr = codAltRaw.split(',').map(s => s.trim()).filter(Boolean);
+
+  // Verifică să nu existe deja codurile la alt material — altfel scanarea
+  // ar fi ambiguă (nu s-ar ști din ce stoc să scadă).
+  const toateCodurile = [cod, ...codAltArr].filter(Boolean);
+  const conflict = allStoc.find(m =>
+    m.id !== existingId &&
+    toateCodurile.some(cd =>
+      m.cod_bare === cd || (Array.isArray(m.coduri_alt) && m.coduri_alt.includes(cd))
+    )
+  );
+  if (conflict) {
+    showToast(`Cod deja folosit la "${conflict.nume}". Fiecare cod poate aparține unui singur material.`, 'error');
+    return;
+  }
+
   const payload = {
     nume,
     cod_bare: cod || null,
+    coduri_alt: codAltArr.length ? codAltArr : null,
     stoc_curent: parseInt(document.getElementById('msStoc').value) || 0,
     stoc_minim: parseInt(document.getElementById('msMinim').value) || 5,
     nota: document.getElementById('msNota').value.trim() || null,
