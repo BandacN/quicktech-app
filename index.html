@@ -1450,6 +1450,42 @@ label {
 .badge.nou, .badge.n, .badge.s-nou { background: #F1F5F9; color: #475569; border-color: #CBD5E1; }
 .badge.in_lucru, .badge.s-in_lucru { background: #FFF7ED; color: var(--brand-acc); border-color: rgba(255,85,0,0.25); }
 .badge.finalizat, .badge.s-finalizat { background: var(--green-bg); color: var(--green); border-color: var(--green-border); }
+/* ─── Badge data instalării (al treilea din coloană) ───
+   Padding mai mic decât celelalte, ca al treilea rând să nu îngrașe prea mult
+   cardul. Fără uppercase — „14 sep" și „mâine" se citesc mai bine natural.
+   Toate culorile prin variabile, ca să funcționeze și pe tema dark. */
+/* ─── Butoane rapide pentru data instalării ─── */
+.date-quick {
+  display: flex; gap: 5px; margin-top: 6px; flex-wrap: wrap;
+}
+.date-quick button {
+  font-size: 11px; font-weight: 600;
+  padding: 4px 9px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--text-soft);
+  cursor: pointer;
+  transition: all .15s;
+}
+.date-quick button:hover {
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-color: var(--accent-glow);
+}
+.badge.date-badge {
+  padding: 2px 6px;
+  border-radius: 6px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 600;
+  gap: 3px;
+}
+.badge.date-badge.d-intarziat { background: var(--red-bg); color: var(--red); border-color: var(--red-border); }
+.badge.date-badge.d-azi       { background: var(--red-bg); color: var(--red); border-color: var(--red-border); }
+.badge.date-badge.d-maine     { background: var(--amber-bg); color: var(--amber); border-color: var(--amber-border); }
+.badge.date-badge.d-viitor    { background: var(--accent-dim); color: var(--accent); border-color: var(--accent-glow); }
+.badge.date-badge.d-neutru    { background: var(--surface3); color: var(--text-muted); border-color: var(--border); }
 /* dot din badge (înainte de label) */
 .badge .dot {
   width: 6px; height: 6px;
@@ -3071,7 +3107,33 @@ async function doRegister() {
   showLogin();
 }
 
+/* ─── DECONECTARE ───
+   Push-ul nu depinde de sesiunea Supabase, ci de un token legat de
+   browser + service worker + dispozitiv. Fără pasul ăsta, un om
+   deconectat continua să primească notificări, iar dacă doi tehnicieni
+   foloseau același telefon, al doilea le primea pe ale primului.
+   Retragem tokenul din ambele locuri: din tabela noastră și de la
+   Firebase. La următoarea autentificare se generează unul nou. */
+async function retrageTokenFCM() {
+  if (!fcmTokenCurent) return;
+  try {
+    await sb.from('fcm_tokens').delete().eq('token', fcmTokenCurent);
+  } catch (e) {
+    console.warn('[fcm] nu am putut șterge tokenul din DB:', e?.message);
+  }
+  try {
+    if (fcmDeleteToken && fcmMessaging) await fcmDeleteToken(fcmMessaging);
+  } catch (e) {
+    console.warn('[fcm] deleteToken a eșuat:', e?.message);
+  }
+  fcmTokenCurent = null;
+  console.log('[fcm] token retras la deconectare');
+}
+
 async function doLogout() {
+  // Retragem tokenul ÎNAINTE de signOut: după deconectare, politicile RLS
+  // nu ne-ar mai lăsa să ștergem rândul din fcm_tokens.
+  await retrageTokenFCM();
   await sb.auth.signOut();
   currentUser = null; currentProfile = null;
   if (notifChannel) sb.removeChannel(notifChannel);
@@ -3470,6 +3532,7 @@ function renderTasks() {
       <div class="tc-badges">
         ${priorityBadge(t.priority)}
         ${statusBadge(t.status)}
+        ${installDateBadge(t)}
       </div>
     </div>`;
   }).join('');
@@ -3879,7 +3942,12 @@ function openTaskModal(id=null) {
     document.getElementById('tPriority').value='normal';
     document.getElementById('taskOverlay').dataset.currentStatus = 'nou';
     document.getElementById('tTech').value='';
-    document.getElementById('tDate').value=new Date().toISOString().split('T')[0];
+    document.getElementById('tDate').value='';
+    // Resetez marcajul de sincronizare, altfel o dată auto-completată la un
+    // task anterior ar fi tratată ca "pusă manual" la următorul.
+    document.getElementById('tDate').dataset.autoSync = '';
+    const cdi = document.getElementById('tClientDataInst');
+    if (cdi) { cdi.value = ''; cdi.dataset.autoSync = ''; }
     document.getElementById('tPhone').value='';
     // Ascund secțiunea echipă (până nu selectează 'team')
     const teamSection = document.getElementById('tTeamSection');
@@ -3940,6 +4008,10 @@ async function saveTask() {
   };
 
   if (editingTaskId) {
+    // Rețin starea DINAINTE de update, ca să pot detecta reatribuirea.
+    const taskVechi = allTasks.find(t => t.id === editingTaskId);
+    const vechiIds = destinatariTask(taskVechi);
+
     let { error: updErr } = await sb.from('tasks').update(payload).eq('id', editingTaskId);
     if (updErr && /is_open_pool|team_member_ids|team_id/.test(updErr.message || '')) {
       console.warn('[saveTask] Coloane lipsă în DB, retry fără ele');
@@ -3948,6 +4020,48 @@ async function saveTask() {
     }
     // Încarc pozele adăugate (dacă există)
     await uploadPendingTaskPhotos(editingTaskId);
+
+    /* ─── NOTIFICĂRI LA EDITARE ───
+       Anterior editarea nu genera NICIO notificare: puteai muta un task de
+       la Ion la Vasile, iar Vasile nu afla niciodată. Acum compar lista de
+       atribuiți înainte/după și anunț ambele părți. */
+    const autorEd = numeAutor();
+    const prioEd = priorityLabel(payload.priority);
+    const noiIds = destinatariTask(payload);
+    const adaugati = noiIds.filter(id => !vechiIds.includes(id));
+    const scosi = vechiIds.filter(id => !noiIds.includes(id));
+
+    if (adaugati.length || scosi.length) {
+      if (adaugati.length) {
+        await notificaEveniment({
+          destinatari: adaugati,
+          mesaj: `🔄 ${autorEd} ți-a atribuit taskul: ${payload.client} — ${prioEd}`,
+          mesajAdmini: `🔄 ${autorEd} a reatribuit taskul „${payload.client}" către ${techName}`,
+          taskId: editingTaskId,
+        });
+      }
+      if (scosi.length) {
+        // Cei scoși află că nu mai e al lor. Adminii au fost deja anunțați
+        // mai sus dacă au existat și persoane adăugate.
+        await notificaEveniment({
+          destinatari: scosi,
+          mesaj: `↩️ Taskul „${payload.client}" nu îți mai este atribuit (modificat de ${autorEd})`,
+          mesajAdmini: adaugati.length ? null : `🔄 ${autorEd} a dezatribuit taskul: ${payload.client}`,
+          includeAdmini: !adaugati.length,
+          taskId: editingTaskId,
+        });
+      }
+    } else if (noiIds.length) {
+      // Fără reatribuire, dar taskul s-a modificat — anunț doar persoanele
+      // de pe task, nu și adminii (ar fi zgomot la fiecare corectură).
+      await notificaEveniment({
+        destinatari: noiIds,
+        mesaj: `✏️ ${autorEd} a modificat taskul: ${payload.client}`,
+        includeAdmini: false,
+        taskId: editingTaskId,
+      });
+    }
+
     showToast('Task actualizat!','success');
   } else {
     payload.created_by = currentUser.id;
@@ -3960,48 +4074,46 @@ async function saveTask() {
     }
     // Încarc pozele atașate la creare (dacă există)
     if (data?.id) await uploadPendingTaskPhotos(data.id);
-    // notificări
+    // ─── NOTIFICĂRI LA CREARE ───
+    // Destinatarii direcți primesc "ai un task", adminii primesc separat
+    // "X a adăugat un task" — inclusiv numele celui care l-a creat, ca să
+    // se vadă care admin a introdus ce. Autorul e exclus automat.
+    const autor = numeAutor();
+    const prio = priorityLabel(payload.priority);
+
     if (isOpenPool) {
-      // notifică TOȚI tehnicienii
-      const techIds = allProfiles.map(p => p.id);
-      if (techIds.length) {
-        const notifs = techIds.map(uid => ({
-          user_id: uid,
-          message: `🌐 Task disponibil: ${payload.client} — ${priorityLabel(payload.priority)} (preia primul)`,
-          task_id: data?.id
-        }));
-        await sb.from('notifications').insert(notifs);
-        await sendPushToUsers(techIds,
-          '🔒 QuickTech Security',
-          `🌐 Task disponibil: ${payload.client} — preia primul!`,
-          data?.id
-        );
-      }
-    } else if (isTeam && teamMemberIds && teamMemberIds.length) {
-      // notifică TOȚI membrii echipei
-      const notifs = teamMemberIds.map(uid => ({
-        user_id: uid,
-        message: `👥 Ai un task de echipă: ${payload.client} — ${priorityLabel(payload.priority)}`,
-        task_id: data?.id
-      }));
-      await sb.from('notifications').insert(notifs);
-      await sendPushToUsers(teamMemberIds,
-        '🔒 QuickTech Security',
-        `👥 Task echipă: ${payload.client} — ${priorityLabel(payload.priority)}`,
-        data?.id
-      );
-    } else if (techId) {
-      await sb.from('notifications').insert({
-        user_id: techId,
-        message: `Ai primit un task nou: ${payload.client} — ${priorityLabel(payload.priority)}`,
-        task_id: data?.id
+      await notificaEveniment({
+        destinatari: allProfiles.map(p => p.id),
+        mesaj: `🌐 Task disponibil: ${payload.client} — ${prio} (preia primul)`,
+        pushMesaj: `🌐 Task disponibil: ${payload.client} — preia primul!`,
+        mesajAdmini: `📋 ${autor} a adăugat un task open pool: ${payload.client} — ${prio}`,
+        taskId: data?.id,
       });
-      // Push notification
-      await sendPushToUsers([techId],
-        '🔒 QuickTech Security',
-        `Task nou: ${payload.client} — ${priorityLabel(payload.priority)}`,
-        data?.id
-      );
+    } else if (isTeam && teamMemberIds && teamMemberIds.length) {
+      await notificaEveniment({
+        destinatari: teamMemberIds,
+        mesaj: `👥 Ai un task de echipă: ${payload.client} — ${prio}`,
+        pushMesaj: `👥 Task echipă: ${payload.client} — ${prio}`,
+        mesajAdmini: `📋 ${autor} a adăugat un task de echipă (${techName}): ${payload.client} — ${prio}`,
+        taskId: data?.id,
+      });
+    } else if (techId) {
+      await notificaEveniment({
+        destinatari: [techId],
+        mesaj: `Ai primit un task nou de la ${autor}: ${payload.client} — ${prio}`,
+        pushMesaj: `Task nou de la ${autor}: ${payload.client} — ${prio}`,
+        mesajAdmini: `📋 ${autor} a atribuit un task lui ${techName}: ${payload.client} — ${prio}`,
+        taskId: data?.id,
+      });
+    } else {
+      // Task neatribuit — nu are destinatar direct, dar adminii trebuie să afle.
+      // Anterior acest caz nu genera absolut nicio notificare.
+      await notificaEveniment({
+        destinatari: [],
+        mesaj: '',
+        mesajAdmini: `📋 ${autor} a adăugat un task neatribuit: ${payload.client} — ${prio}`,
+        taskId: data?.id,
+      });
     }
     showToast('Task adăugat!','success');
     if (data?.id) await saveClientDinTask(data.id, { ...payload, maps_link: document.getElementById('tMapsLink').value.trim() || null, team_member_ids: teamMemberIds || [] });
@@ -4046,26 +4158,21 @@ async function updateStatus(taskId, newStatus) {
     await sb.from('tasks').update(updates).eq('id', taskId);
   }
 
-  // notify admin
+  /* ─── NOTIFICĂRI LA SCHIMBARE DE STATUS ───
+     Două schimbări față de varianta veche:
+     1. Tehnicianul de pe task află și el (înainte, dacă adminul schimba
+        statusul, persoana atribuită nu primea nimic).
+     2. Autorul acțiunii e exclus — adminul nu-și mai trimite push sieși. */
   const statusLabels = { nou:'marcat ca Nou', in_lucru:'preluat', finalizat:'finalizat' };
-  const { data: admins } = await sb.from('profiles').select('id').eq('role','admin');
-  if (admins) {
-    const claimMsg = isOpenPoolClaim ? ` (din pool-ul disponibil)` : '';
-    for (const admin of admins) {
-      await sb.from('notifications').insert({
-        user_id: admin.id,
-        message: `${currentProfile?.full_name} a ${statusLabels[newStatus]} taskul${claimMsg}: ${task.client}`,
-        task_id: taskId
-      });
-    }
-    // Push către admini
-    const adminIds = admins.map(a => a.id);
-    await sendPushToUsers(adminIds,
-      '🔒 QuickTech Security',
-      `${currentProfile?.full_name} a ${statusLabels[newStatus]}${claimMsg} taskul: ${task.client}`,
-      taskId
-    );
-  }
+  const claimMsg = isOpenPoolClaim ? ` (din pool-ul disponibil)` : '';
+  const autorSt = numeAutor();
+  const textSt = `${autorSt} a ${statusLabels[newStatus]}${claimMsg} taskul: ${task.client}`;
+
+  await notificaEveniment({
+    destinatari: destinatariTask(task),
+    mesaj: textSt,
+    taskId: taskId,
+  });
   showToast(isOpenPoolClaim ? 'Task preluat cu succes! 🎯' : 'Status actualizat!','success');
 }
 
@@ -4092,24 +4199,13 @@ async function closeTeamTask(taskId) {
 
   // Notific ceilalți membri ai echipei + adminul
   const myName = currentProfile?.full_name || 'Tehnician';
-  const otherMembers = (task.team_member_ids || []).filter(id => id !== currentUser.id);
-  const { data: admins } = await sb.from('profiles').select('id').eq('role', 'admin');
-  const adminIds = (admins || []).map(a => a.id);
-  const recipientIds = [...new Set([...otherMembers, ...adminIds])];
-
-  if (recipientIds.length > 0) {
-    const notifs = recipientIds.map(uid => ({
-      user_id: uid,
-      message: `✓ ${myName} a finalizat taskul de echipă: ${task.client}`,
-      task_id: taskId,
-    }));
-    await sb.from('notifications').insert(notifs);
-    await sendPushToUsers(recipientIds,
-      '🔒 QuickTech Security',
-      `✓ ${myName} a închis taskul echipă: ${task.client}`,
-      taskId
-    );
-  }
+  // Membrii echipei + adminii, minus cel care închide (exclus de helper)
+  await notificaEveniment({
+    destinatari: task.team_member_ids || [],
+    mesaj: `✓ ${myName} a finalizat taskul de echipă: ${task.client}`,
+    pushMesaj: `✓ ${myName} a închis taskul echipă: ${task.client}`,
+    taskId: taskId,
+  });
 
   showToast('✓ Task finalizat pentru toată echipa', 'success');
 }
@@ -4214,6 +4310,69 @@ function getTechName(id) {
   return p?.full_name || null;
 }
 function priorityLabel(p) { return { normal:'Normal', urgent:'Urgent', priority:'Prioritar' }[p]||p; }
+/* ─── BADGE DATA INSTALĂRII ───
+   Folosește câmpul `date` din tabela tasks (data lucrării, NU data adăugării).
+   Format scurt „14 sep" ca să încapă în coloana de badge-uri; anul apare doar
+   dacă e diferit de cel curent, altfel ocupă spațiu degeaba.
+   Culoarea semnalizează proximitatea: roșu = azi sau depășit, ambru = mâine,
+   albastru = viitor. Taskurile finalizate rămân neutre — data nu mai presează. */
+function installDateBadge(t) {
+  if (!t || !t.date) return '';
+  const d = new Date(t.date);
+  if (isNaN(d)) return '';
+
+  const azi = new Date(); azi.setHours(0, 0, 0, 0);
+  const zi = new Date(d); zi.setHours(0, 0, 0, 0);
+  const difZile = Math.round((zi - azi) / 86400000);
+
+  const luni = ['ian','feb','mar','apr','mai','iun','iul','aug','sep','oct','noi','dec'];
+  let txt = `${zi.getDate()} ${luni[zi.getMonth()]}`;
+  if (zi.getFullYear() !== azi.getFullYear()) txt += ` ${String(zi.getFullYear()).slice(2)}`;
+
+  const finalizat = !!t.closed_at || t.status === 'finalizat';
+  let cls = 'd-viitor';
+  if (finalizat) cls = 'd-neutru';
+  else if (difZile < 0) cls = 'd-intarziat';
+  else if (difZile === 0) { cls = 'd-azi'; txt = 'azi'; }
+  else if (difZile === 1) { cls = 'd-maine'; txt = 'mâine'; }
+
+  return `<span class="badge date-badge ${cls}">📅 ${txt}</span>`;
+}
+
+/* ─── DATA INSTALĂRII: butoane rapide + sincronizare ───
+   La un task de instalare, aceeași dată trebuia scrisă de două ori: o dată
+   în câmpul „Data" al taskului și încă o dată în „Data instalare" din
+   secțiunea de adăugare client. Sunt aceeași dată reală, deci le legăm:
+   scrii într-unul, se completează și celălalt. Sincronizarea nu suprascrie
+   o valoare deja pusă manual în celălalt câmp, ca să rămână posibil cazul
+   rar în care chiar diferă (ex: client înregistrat retroactiv). */
+function setTaskDate(zile) {
+  const d = new Date();
+  d.setDate(d.getDate() + zile);
+  const val = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const inp = document.getElementById('tDate');
+  if (inp) { inp.value = val; syncDataInstalare('task'); }
+}
+
+function syncDataInstalare(sursa) {
+  const task = document.getElementById('tDate');
+  const client = document.getElementById('tClientDataInst');
+  if (!task || !client) return;
+  if (sursa === 'task') {
+    // Completez data clientului doar dacă e goală sau egală cu cea veche
+    if (!client.value || client.dataset.autoSync === '1') {
+      client.value = task.value;
+      client.dataset.autoSync = '1';
+    }
+  } else {
+    if (!task.value || task.dataset.autoSync === '1') {
+      task.value = client.value;
+      task.dataset.autoSync = '1';
+    }
+    client.dataset.autoSync = '';
+  }
+}
+
 function priorityBadge(p) {
   const map = { normal:'b-normal', urgent:'b-urgent', priority:'b-priority' };
   const lbl = { normal:'Normal', urgent:'Urgent', priority:'Prioritar' };
@@ -4332,22 +4491,14 @@ async function saveMentions() {
 
   await sb.from('tasks').update({ mentions: updated, updated_at: new Date().toISOString() }).eq('id', taskId);
 
-  const { data: admins } = await sb.from('profiles').select('id').eq('role', 'admin');
-  const adminIds = (admins || []).map(a => a.id);
-  const techId = task?.technician_id || null;
-  const teamIds = task?.team_member_ids || [];
-  const allRecipientIds = [...new Set([...adminIds, ...(techId ? [techId] : []), ...teamIds])]
-    .filter(id => id !== currentUser.id);
-  if (allRecipientIds.length > 0) {
-    const notifRows = allRecipientIds.map(uid => ({
-      user_id: uid,
-      message: `💬 ${author} a adăugat o mențiune la taskul: ${task?.client}`,
-      task_id: taskId
-    }));
-    await sb.from('notifications').insert(notifRows);
-    await sendPushToUsers(allRecipientIds, '💬 Mențiune nouă — QuickTech',
-      `${author}: ${newText.substring(0, 80)}${newText.length > 80 ? '...' : ''}`, taskId);
-  }
+  // Persoanele de pe task + adminii, minus autorul mențiunii
+  await notificaEveniment({
+    destinatari: destinatariTask(task),
+    mesaj: `💬 ${author} a adăugat o mențiune la taskul: ${task?.client}`,
+    pushMesaj: `${author}: ${newText.substring(0, 80)}${newText.length > 80 ? '...' : ''}`,
+    pushTitlu: '💬 Mențiune nouă — QuickTech',
+    taskId: taskId,
+  });
 
   showToast('Mențiune salvată! ✅', 'success');
   closeMentionsModal();
@@ -4565,9 +4716,46 @@ async function loadUsers() {
           <div style="font-size:12px;color:var(--text-muted);">${roleLabel(u.role)}</div>
         </div>
       </div>
-      ${u.id !== currentUser.id ? `<button class="btn btn-danger btn-sm" onclick="deleteUser('${u.id}','${u.full_name}')">✕</button>` : '<span style="font-size:11px;color:var(--text-muted);">Tu</span>'}
+      <div style="display:flex;gap:6px;align-items:center;">
+        ${u.role !== 'admin' || u.id === currentUser.id
+          ? `<button class="btn btn-secondary btn-sm" title="Resetează parola" onclick="resetPassword('${u.id}','${esc(u.full_name)}')">🔑</button>` : ''}
+        ${u.id !== currentUser.id ? `<button class="btn btn-danger btn-sm" onclick="deleteUser('${u.id}','${u.full_name}')">✕</button>` : '<span style="font-size:11px;color:var(--text-muted);">Tu</span>'}
+      </div>
     </div>
   `).join('');
+}
+
+/* ─── RESETARE PAROLĂ ───
+   Parolele sunt hash-uri bcrypt în auth.users; nu se pot citi, doar
+   înlocui. Treaba o face edge function-ul admin-reset-password prin
+   Admin API, aceeași cale pe care o folosește și Supabase Dashboard.
+   Parola unui alt administrator nu poate fi schimbată de aici. */
+async function resetPassword(userId, numeUser) {
+  const parola = prompt(`Parolă nouă pentru ${numeUser}\n(minim 8 caractere)`);
+  if (parola === null) return;
+  if (parola.trim().length < 8) { showToast('Parola trebuie să aibă cel puțin 8 caractere', 'error'); return; }
+
+  try {
+    const accessToken = await getFreshAccessToken();
+    if (!accessToken) { showToast('Sesiune expirată — reintră în cont', 'error'); return; }
+
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/admin-reset-password`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`,
+        'apikey': SUPABASE_KEY,
+      },
+      body: JSON.stringify({ user_id: userId, parola_noua: parola.trim() })
+    });
+    const rez = await res.json().catch(() => null);
+
+    if (!res.ok) { showToast(rez?.error || `Eroare ${res.status}`, 'error'); return; }
+    showToast(rez.mesaj || 'Parolă schimbată', 'success');
+  } catch (err) {
+    console.error('[resetPassword]', err);
+    showToast('Eroare de rețea', 'error');
+  }
 }
 
 // Etichetă afișată pentru fiecare rol (inclusiv rolul 'stoc' — stație scanare)
@@ -4591,28 +4779,44 @@ async function addUser() {
   const pass = document.getElementById('newUserPass').value;
   const role = document.getElementById('newUserRole').value;
   if (!name||!email||!pass) { showToast('Completează toate câmpurile!','info'); return; }
-  const { data, error } = await sb.auth.signUp({ email, password: pass });
-  if (error) { showToast('Eroare: '+error.message,'info'); return; }
+  if (pass.length < 8) { showToast('Parola trebuie să aibă cel puțin 8 caractere.','error'); return; }
 
-  // Trigger-ul de securitate `handle_new_user()` creează deja profilul la
-  // signUp, forțat cu rol 'technician' (previne escaladarea de privilegii
-  // din formularul public). Aici, adminul poate seta rolul real dorit —
-  // politica RLS "admin editeaza orice profil" permite asta.
-  const { error: roleErr } = await sb.from('profiles')
-    .update({ full_name: name, role })
-    .eq('id', data.user.id);
-  if (roleErr) {
-    // Fallback: dacă trigger-ul nu e activ pe acest mediu, inserăm normal
-    await sb.from('profiles').insert({ id: data.user.id, full_name: name, role });
+  /* ─── DE CE NU sb.auth.signUp() ───
+     signUp autentifică imediat browserul cu contul nou creat, deci
+     adminul era deconectat din contul lui și logat pe cel al
+     tehnicianului. Tot de acolo venea și nevoia de a corecta rolul
+     printr-un update ulterior: profilul se crea înainte să apucăm noi
+     să spunem ce rol vrem.
+     Contul se creează acum server-side, prin Admin API, exact cum face
+     și Supabase Dashboard. Sesiunea ta rămâne neatinsă, iar rolul se
+     scrie din prima. */
+  try {
+    const accessToken = await getFreshAccessToken();
+    if (!accessToken) { showToast('Sesiune expirată — reintră în cont','error'); return; }
+
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/admin-reset-password`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`,
+        'apikey': SUPABASE_KEY,
+      },
+      body: JSON.stringify({ email, parola: pass, nume: name, rol: role })
+    });
+    const rez = await res.json().catch(() => null);
+    if (!res.ok) { showToast(rez?.error || `Eroare ${res.status}`, 'error'); return; }
+
+    document.getElementById('newUserName').value='';
+    document.getElementById('newUserEmail').value='';
+    document.getElementById('newUserPass').value='';
+    document.getElementById('newUserRole').value='technician';
+    await loadUsers();
+    await loadProfiles();
+    showToast(`${name} adăugat! ✅`,'success');
+  } catch (err) {
+    console.error('[addUser]', err);
+    showToast('Eroare de rețea','error');
   }
-
-  document.getElementById('newUserName').value='';
-  document.getElementById('newUserEmail').value='';
-  document.getElementById('newUserPass').value='';
-  document.getElementById('newUserRole').value='technician';
-  await loadUsers();
-  await loadProfiles();
-  showToast(`${name} adăugat! ✅`,'success');
 }
 
 // ─── TEAMS (Echipe fixe) ─────────────────────────────────
@@ -6556,6 +6760,7 @@ function openMentModal(id=null) {
   const m = id ? allMent.find(x => x.id === id) : null;
   document.getElementById('mClient').value = m?.client || '';
   document.getElementById('mAdresa').value = m?.adresa || '';
+  document.getElementById('mTelefon').value = m?.telefon || '';
   document.getElementById('mTip').value = m?.tip_sistem || 'CCTV';
   document.getElementById('mUltima').value = m?.ultima_mentenanta || new Date().toISOString().split('T')[0];
   document.getElementById('mUrmatoarea').value = m?.urmatoarea_mentenanta || '';
@@ -6575,6 +6780,19 @@ function openMentModal(id=null) {
 function closeMentModal() { document.getElementById('mentOverlay').classList.remove('open'); }
 function editMent(id) { closeMentDetail(); openMentModal(id); }
 
+/* Pre-completează telefonul din fișa clientului, dacă numele se
+   potrivește exact. Doar sugestie: telefonul mentenanței poate fi al
+   administratorului de la punctul de lucru, nu al firmei-mamă, iar
+   numărul din fișă poate fi vechi. Nu suprascrie ce ai scris deja. */
+function sugereazaTelefonMent() {
+  const tel = document.getElementById('mTelefon');
+  if (!tel || tel.value.trim()) return;
+  const nume = document.getElementById('mClient').value.trim().toLowerCase();
+  if (nume.length < 3) return;
+  const c = (allClienti || []).find(x => (x.nume || '').trim().toLowerCase() === nume);
+  if (c?.telefon) { tel.value = c.telefon; tel.dataset.sugerat = '1'; }
+}
+
 async function saveMent() {
   const client = document.getElementById('mClient').value.trim();
   const tip = document.getElementById('mTip').value;
@@ -6582,6 +6800,7 @@ async function saveMent() {
   const payload = {
     client,
     adresa: document.getElementById('mAdresa').value.trim(),
+    telefon: document.getElementById('mTelefon').value.trim() || null,
     tip_sistem: tip,
     interval_zile: parseInt(document.getElementById('mInterval').value) || 30,
     ultima_mentenanta: document.getElementById('mUltima').value || null,
@@ -6637,6 +6856,8 @@ const VAPID_KEY = 'BMSzK_LBBkXLY_AVwWQQ94M49jhgSGr0A_0luS82E7QDe6Br-8eHiNYyiJjA2
 
 
 let fcmMessaging = null;
+let fcmTokenCurent = null;   // tokenul dispozitivului curent
+let fcmDeleteToken = null;   // funcția Firebase, importată dinamic în initFCM
 
 async function initFCM() {
   try {
@@ -6651,7 +6872,8 @@ async function initFCM() {
 
     // Inițializează Firebase
     const { initializeApp } = await import('https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js');
-    const { getMessaging, getToken, onMessage } = await import('https://www.gstatic.com/firebasejs/10.7.0/firebase-messaging.js');
+    const { getMessaging, getToken, onMessage, deleteToken } = await import('https://www.gstatic.com/firebasejs/10.7.0/firebase-messaging.js');
+    fcmDeleteToken = deleteToken;
 
     const firebaseApp = initializeApp({
       apiKey: "AIzaSyAM8xNSobHhJHsrldPTTOuQy2NLno05taA",
@@ -6678,6 +6900,7 @@ async function initFCM() {
     // să înlocuiască tokenul celorlalte — primeai notificări doar pe unul.
     const token = await getToken(fcmMessaging, { vapidKey: VAPID_KEY, serviceWorkerRegistration: swReg });
     if (token && currentUser?.id) {
+      fcmTokenCurent = token;   // reținut ca să-l putem retrage la deconectare
       const { error: upsertErr } = await sb.from('fcm_tokens')
         .upsert({ user_id: currentUser.id, token, created_at: new Date().toISOString() },
                  { onConflict: 'token' });
@@ -6705,38 +6928,180 @@ async function initFCM() {
   }
 }
 
-let pushSending = false;
+/* ─── TOKEN DE SESIUNE PROASPĂT ───
+   getSession() întoarce sesiunea din memorie AȘA CUM E — inclusiv un access
+   token deja expirat, fără să încerce reîmprospătarea. Access token-ul
+   Supabase trăiește o oră; app-ul lăsat deschis pe telefon toată ziua ajunge
+   să trimită push-uri cu JWT mort, iar edge function-ul răspunde 401 tăcut.
+   Aici verific expirarea și reîmprospătez preventiv cu 2 minute înainte. */
+async function getFreshAccessToken() {
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session?.access_token) return null;
+
+  const expiresAt = session.expires_at ? session.expires_at * 1000 : 0;
+  const marja = 120000; // 2 minute
+  if (expiresAt && Date.now() < expiresAt - marja) return session.access_token;
+
+  console.log('[push] token expirat sau aproape expirat — reîmprospătez sesiunea');
+  const { data: refreshed, error } = await sb.auth.refreshSession();
+  if (error || !refreshed?.session?.access_token) {
+    console.warn('[push] refreshSession a eșuat:', error?.message || 'fără sesiune');
+    return null;
+  }
+  return refreshed.session.access_token;
+}
+
+/* De-duplicare per destinatar+mesaj, nu global.
+   Înainte era un singur flag `pushSending` pentru toată aplicația: dacă două
+   push-uri diferite plecau în aceeași fereastră de 3s (task nou către echipă
+   + mențiune, de ex.), al doilea era aruncat tăcut. Acum blochez doar
+   repetarea aceluiași mesaj către aceiași oameni. */
+const _pushRecent = new Map();
 
 async function sendPushToUsers(userIds, title, body, taskId) {
-  if (pushSending) return;
-  pushSending = true;
   try {
     // De-duplic user-ids (în caz că primim listă cu duplicate)
-    const uniqueUserIds = [...new Set(userIds.filter(Boolean))];
+    const uniqueUserIds = [...new Set((userIds || []).filter(Boolean))];
     if (!uniqueUserIds.length) return;
+
+    const cheie = `${uniqueUserIds.slice().sort().join(',')}|${title}|${body}`;
+    const acum = Date.now();
+    // Curăț intrările vechi ca să nu crească Map-ul la nesfârșit
+    for (const [k, t] of _pushRecent) if (acum - t > 10000) _pushRecent.delete(k);
+    if (_pushRecent.has(cheie) && acum - _pushRecent.get(cheie) < 3000) {
+      console.log('[push] duplicat ignorat (același mesaj, aceiași destinatari)');
+      return;
+    }
+    _pushRecent.set(cheie, acum);
 
     // SECURITATE: trimitem doar INTENȚIA (cui vrem să trimită), nu token-urile.
     // Edge function-ul validează apelantul prin JWT-ul de sesiune și rezolvă
     // token-urile FCM server-side. Anterior, clientul dicta destinatarii cu
     // cheia anon (publică) — oricine putea trimite push arbitrare către
     // orice dispozitiv al firmei.
-    const { data: { session } } = await sb.auth.getSession();
-    if (!session?.access_token) { console.log('Push: fără sesiune activă'); return; }
+    const accessToken = await getFreshAccessToken();
+    if (!accessToken) { console.warn('[push] fără sesiune validă — nu trimit'); return; }
 
-    await fetch(`${SUPABASE_URL}/functions/v1/send-push`, {
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/send-push`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${session.access_token}`,
+        'Authorization': `Bearer ${accessToken}`,
         'apikey': SUPABASE_KEY,
       },
       body: JSON.stringify({ user_ids: uniqueUserIds, title, body, task_id: taskId ?? null })
     });
+
+    /* ─── CITIREA RĂSPUNSULUI ───
+       Înainte, răspunsul era ignorat complet: 401, 500 sau "skipped" arătau
+       toate identic din aplicație, adică deloc. De aici venea senzația că
+       "notificările nu mai merg" fără niciun indiciu în consolă. */
+    let rezultat = null;
+    try { rezultat = await res.json(); } catch { /* răspuns non-JSON */ }
+
+    if (res.status === 401) {
+      console.error('[push] 401 — JWT respins de edge function. Sesiunea nu e validă server-side.');
+      return;
+    }
+    if (!res.ok) {
+      console.error(`[push] HTTP ${res.status}:`, rezultat?.error || rezultat || '(fără corp)');
+      return;
+    }
+    if (rezultat?.skipped) {
+      // Cazul normal în afara programului (L-V 08:00-17:00) — comportament dorit,
+      // dar acum e vizibil, ca să nu fie confundat cu o defecțiune.
+      console.log('[push] netrimis —', rezultat.reason);
+      return;
+    }
+
+    // Raportez rezultatul FCM per token, ca să văd dacă a respins vreunul
+    const rezultate = rezultat?.results || [];
+    const esuate = rezultate.filter(r => r?.error);
+    if (esuate.length) {
+      console.warn(`[push] ${rezultate.length - esuate.length}/${rezultate.length} livrate. Erori:`,
+        esuate.map(r => r.error?.status || r.error?.message));
+    } else {
+      console.log(`[push] trimis către ${uniqueUserIds.length} user(i), ${rezultate.length} device(uri) ✅`);
+    }
   } catch (err) {
-    console.log('Push error:', err);
-  } finally {
-    setTimeout(() => { pushSending = false; }, 3000);
+    console.error('[push] eroare rețea:', err);
   }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   NOTIFICARE CENTRALIZATĂ
+   Înainte, fiecare flux își construia manual lista de destinatari, iar
+   regulile ieșeau inconsistente: la creare de task adminii nu aflau
+   nimic, la schimbare de status adminul își trimitea push sieși, iar
+   la editare nu se notifica absolut nimeni.
+   Aici e o singură regulă: destinatarii direcți + toți adminii, minus
+   autorul acțiunii. Adminii pot primi un text diferit de cel al
+   tehnicienilor (ex: "Ion a preluat taskul" vs "Ai un task nou").
+   ═══════════════════════════════════════════════════════════════════ */
+async function getAdminIds() {
+  const { data } = await sb.from('profiles').select('id').eq('role', 'admin');
+  return (data || []).map(a => a.id);
+}
+
+/** Cine e „atribuit" pe un task, indiferent de tip (individual / echipă / open pool) */
+function destinatariTask(t) {
+  if (!t) return [];
+  if (t.is_open_pool) return (allProfiles || []).map(p => p.id);
+  if (Array.isArray(t.team_member_ids) && t.team_member_ids.length) return t.team_member_ids;
+  return t.technician_id ? [t.technician_id] : [];
+}
+
+async function notificaEveniment({
+  destinatari = [],
+  mesaj,                 // text in-app pentru destinatarii direcți
+  pushMesaj = null,      // text push pentru ei (default: mesaj)
+  mesajAdmini = null,    // dacă e setat, adminii primesc textul ăsta separat
+  pushMesajAdmini = null,
+  taskId = null,
+  pushTitlu = '🔒 QuickTech Security',
+  includeAdmini = true,
+}) {
+  try {
+    const eu = currentUser?.id;
+    const directi = [...new Set(destinatari.filter(Boolean))].filter(id => id !== eu);
+    let admini = [];
+    if (includeAdmini) {
+      admini = [...new Set(await getAdminIds())]
+        .filter(id => id !== eu && !directi.includes(id));
+    }
+
+    // Fără text separat pentru admini → un singur grup, un singur mesaj
+    if (!mesajAdmini) {
+      const toti = [...new Set([...directi, ...admini])];
+      if (!toti.length) return;
+      await sb.from('notifications').insert(
+        toti.map(uid => ({ user_id: uid, message: mesaj, task_id: taskId }))
+      );
+      await sendPushToUsers(toti, pushTitlu, pushMesaj || mesaj, taskId);
+      return;
+    }
+
+    // Două grupuri, două texte
+    if (directi.length) {
+      await sb.from('notifications').insert(
+        directi.map(uid => ({ user_id: uid, message: mesaj, task_id: taskId }))
+      );
+      await sendPushToUsers(directi, pushTitlu, pushMesaj || mesaj, taskId);
+    }
+    if (admini.length) {
+      await sb.from('notifications').insert(
+        admini.map(uid => ({ user_id: uid, message: mesajAdmini, task_id: taskId }))
+      );
+      await sendPushToUsers(admini, pushTitlu, pushMesajAdmini || mesajAdmini, taskId);
+    }
+  } catch (err) {
+    console.error('[notif] eroare:', err);
+  }
+}
+
+/** Numele celui care face acțiunea, pentru textul notificărilor */
+function numeAutor() {
+  return currentProfile?.full_name || 'Cineva';
 }
 
 
@@ -8568,8 +8933,9 @@ async function stergeMaterialStoc(id) {
 <div class="overlay" id="mentOverlay">
   <div class="modal" style="max-width:520px;">
     <div class="modal-title" id="mentModalTitle">Mentenanță nouă</div>
-    <div class="fg"><label>Client *</label><input type="text" id="mClient" placeholder="Numele clientului"></div>
+    <div class="fg"><label>Client *</label><input type="text" id="mClient" placeholder="Numele clientului" oninput="sugereazaTelefonMent()"></div>
     <div class="fg"><label>Adresă</label><input type="text" id="mAdresa" placeholder="Adresa obiectivului"></div>
+    <div class="fg"><label>Telefon contact</label><input type="tel" id="mTelefon" placeholder="Cine se sună la fața locului"></div>
     <div class="fg"><label>Tip sistem *</label>
       <select id="mTip">
         <option value="CCTV">📷 CCTV</option>
@@ -8837,7 +9203,7 @@ async function stergeMaterialStoc(id) {
         <div class="fg"><label>Sistem custom (opțional)</label><input type="text" id="tClientSistemCustom" placeholder="ex: Sisteme hibride..."></div>
         <div class="fg"><label>Garanție (luni)</label><input type="number" id="tClientGarantie" value="24" min="0" max="120"></div>
       </div>
-      <div class="fg"><label>Data instalare</label><input type="date" id="tClientDataInst"></div>
+      <div class="fg"><label>Data instalare</label><input type="date" id="tClientDataInst" onchange="syncDataInstalare('client')"></div>
     </div>
     <div class="form-row">
       <div class="fg"><label>Prioritate</label>
@@ -8847,7 +9213,15 @@ async function stergeMaterialStoc(id) {
           <option value="priority">🔴 Prioritar</option>
         </select>
       </div>
-      <div class="fg"><label>Data</label><input type="date" id="tDate"></div>
+      <div class="fg"><label>Data instalării / intervenției</label>
+        <input type="date" id="tDate" onchange="syncDataInstalare('task')">
+        <div class="date-quick">
+          <button type="button" onclick="setTaskDate(0)">azi</button>
+          <button type="button" onclick="setTaskDate(1)">mâine</button>
+          <button type="button" onclick="setTaskDate(3)">+3 zile</button>
+          <button type="button" onclick="setTaskDate(7)">+1 săpt</button>
+        </div>
+      </div>
     </div>
     <div class="form-row">
       <div class="fg" style="grid-column: 1 / -1;"><label>Tehnician</label>

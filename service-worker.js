@@ -1,12 +1,18 @@
 /* ═══════════════════════════════════════════════════════════════
    QuickTech Security — Service Worker
-   v39 — bump cache (ADAUGARE LISTA CLIENTI); corectat path icoane, cache strategy hibrid, push backup
+   v65 — resetare parolă utilizator din lista de utilizatori (Admin API)
+   v66 — tokenul FCM se retrage la deconectare (nu mai vin notificări
+          pe un cont delogat, nici pe telefon partajat)
+   v67 — crearea unui utilizator nu mai deconectează adminul (Admin API
+          în loc de signUp); rolul se aplică din prima
+   v68 — telefon de contact la mentenanțe, preluat în taskul automat
+   v69 — fix creare cont: acțiunea se decide din corpul cererii
    ═══════════════════════════════════════════════════════════════ */
 
 importScripts('https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.7.0/firebase-messaging-compat.js');
 
-const CACHE_NAME = 'quicktech-v60';
+const CACHE_NAME = 'quicktech-v69';
 const ASSETS = ['/index.html', '/manifest.json', '/icon-192.png', '/icon-512.png', '/icon-notification.png'];
 
 firebase.initializeApp({
