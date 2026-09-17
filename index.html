@@ -6851,6 +6851,113 @@ async function marcheazaEfectuata(id) {
 
 
 
+/* ═══════════════════════════════════════════════════════════════════
+   BUTONUL ÎNAPOI DE PE ANDROID
+   Într-o aplicație cu o singură pagină, butonul fizic închidea direct
+   aplicația, indiferent unde erai — un modal deschis, un modul, oriunde.
+   Aici îi dăm un istoric: fiecare modal sau modul deschis pune o intrare,
+   iar „înapoi" o consumă. Aplicația se închide doar de pe dashboard,
+   apăsând de două ori, ca să nu se întâmple din greșeală.
+
+   Am ales un MutationObserver în loc să modific cele ~20 de funcții
+   open/close: orice modal adăugat ulterior e prins automat, fără să mai
+   țină cineva minte să înregistreze noua fereastră. */
+(function navigareInapoi() {
+  let deschise = 0;            // câte intrări am pus noi în istoric
+  let ultimulEscape = 0;       // pentru dubla apăsare de pe dashboard
+  let ignora = false;          // când închidem noi, nu reacționăm la popstate
+
+  const pagini = ['autoPage','cereriPage','clientiPage','garPage','matPage','mentPage','stocPage'];
+  const eDeschis = el => el.classList.contains('open') || el.classList.contains('active');
+
+  function pune() {
+    deschise++;
+    history.pushState({ qt: deschise }, '');
+  }
+
+  /** Închide cel mai de sus strat vizibil. Întoarce false dacă nu mai e nimic. */
+  function inchideUltimul() {
+    // Poza pe tot ecranul e primul strat care trebuie închis: stă peste
+    // tot, inclusiv peste modalul din care a fost deschisă.
+    const lb = document.querySelector('.photo-lightbox.open');
+    if (lb) {
+      if (typeof closeLightbox === 'function') closeLightbox();
+      else lb.classList.remove('open');
+      return true;
+    }
+
+    const overlays = [...document.querySelectorAll('.overlay.open')]
+      .filter(o => o.id !== 'sidebarOverlay');
+    if (overlays.length) { overlays[overlays.length - 1].classList.remove('open'); return true; }
+
+    // Panourile glisante nu sunt overlay-uri — detaliul taskului și
+    // panoul de notificări sunt astfel de panouri. De aceea scăpaseră
+    // din prima variantă și „înapoi" sărea direct la ieșire.
+    const panou = document.querySelector('.task-detail-panel.open, .notif-panel.open');
+    if (panou) {
+      if (panou.id === 'taskDetailPanel' && typeof closeTaskDetail === 'function') closeTaskDetail();
+      else panou.classList.remove('open');
+      return true;
+    }
+
+    const sb = document.getElementById('sidebar');
+    if (sb?.classList.contains('open')) { closeSidebar(); return true; }
+
+    // Un modul deschis → înapoi la dashboard
+    const pag = pagini.map(id => document.getElementById(id)).find(p => p?.classList.contains('active'));
+    if (pag) {
+      const luna = document.getElementById('sidebarCurrent');
+      if (typeof selectMonth === 'function' && luna) selectMonth('current', luna);
+      return true;
+    }
+    return false;
+  }
+
+  window.addEventListener('popstate', () => {
+    if (ignora) { ignora = false; return; }
+
+    ignora = true;
+    const aInchis = inchideUltimul();
+    ignora = false;
+    if (aInchis) { deschise = Math.max(0, deschise - 1); return; }
+
+    // Suntem pe dashboard, fără nimic deschis. Prima apăsare doar
+    // avertizează; a doua, în trei secunde, lasă sistemul să închidă.
+    const acum = Date.now();
+    if (acum - ultimulEscape < 3000) { history.back(); return; }
+    ultimulEscape = acum;
+    if (typeof showToast === 'function') showToast('Mai apasă o dată pentru a ieși', 'info');
+    pune();
+  });
+
+  // Intrare-tampon: fără ea, prima apăsare ar ieși direct din aplicație.
+  document.addEventListener('DOMContentLoaded', () => {
+    history.replaceState({ qt: 0 }, '');
+    pune();
+
+    const obs = new MutationObserver(muts => {
+      for (const m of muts) {
+        const el = m.target;
+        const eraDeschis = (m.oldValue || '').split(/\s+/).some(c => c === 'open' || c === 'active');
+        if (!eraDeschis && eDeschis(el)) pune();
+      }
+    });
+
+    const urmarite = [
+      ...document.querySelectorAll('.overlay'),
+      // Doar panourile care chiar se deschid și se închid. `task-list-panel`
+      // e vizibil permanent, deci nu are ce căuta în istoric.
+      ...document.querySelectorAll('.task-detail-panel, .notif-panel, .photo-lightbox'),
+      ...pagini.map(id => document.getElementById(id)).filter(Boolean),
+      document.getElementById('sidebar'),
+    ].filter(Boolean);
+
+    // Un element poate fi prins de două selectoare; observăm o singură dată.
+    for (const el of new Set(urmarite))
+      obs.observe(el, { attributes: true, attributeFilter: ['class'], attributeOldValue: true });
+  });
+})();
+
 // ── FIREBASE FCM ──
 const VAPID_KEY = 'BMSzK_LBBkXLY_AVwWQQ94M49jhgSGr0A_0luS82E7QDe6Br-8eHiNYyiJjA2XB5JDLyjOoVBvPKBFF4UHq8DvE';
 
@@ -8618,10 +8725,75 @@ function filterStocList() {
   });
 }
 
+/* ─── SETĂRI RAPORT LUNAR ───
+   Adresa stă în baza de date, nu în secretele Edge Functions, ca să se
+   poată schimba din aplicație fără redeploy. Panoul e în tab-ul Istoric,
+   care e oricum doar pentru admin — un al cincilea tab ar fi stricat
+   grila 2×2 de pe mobil. */
+async function renderSetariRaport() {
+  const { data: s } = await sb.from('stoc_setari').select('*').eq('id', 1).maybeSingle();
+  const trimis = s?.ultimul_trimis
+    ? `ultimul trimis: ${new Date(s.ultimul_trimis).toLocaleDateString('ro-RO', { month:'long', year:'numeric' })}`
+    : 'încă netrimis';
+  return `
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:16px;">
+      <div style="font-size:13px;font-weight:700;margin-bottom:10px;">📧 Raport lunar pe email</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <input type="email" id="stocEmailRaport" value="${esc(s?.email_raport || '')}"
+               placeholder="adresa@firma.ro" style="flex:1;min-width:200px;">
+        <label style="display:flex;align-items:center;gap:6px;font-size:13px;white-space:nowrap;">
+          <input type="checkbox" id="stocRaportActiv" ${s?.activ !== false ? 'checked' : ''}> Activ
+        </label>
+        <button class="btn btn-primary btn-sm" onclick="salveazaSetariStoc()">Salvează</button>
+        <button class="btn btn-ghost btn-sm" onclick="trimiteRaportStocAcum()">Trimite acum</button>
+      </div>
+      <div style="font-size:11.5px;color:var(--text-muted);margin-top:8px;" id="stocRaportStare">
+        Se trimite automat pe 1 ale lunii, pentru luna încheiată · ${trimis}
+      </div>
+    </div>`;
+}
+
+async function salveazaSetariStoc() {
+  const email = document.getElementById('stocEmailRaport').value.trim();
+  const activ = document.getElementById('stocRaportActiv').checked;
+  const { error } = await sb.from('stoc_setari')
+    .update({ email_raport: email || null, activ, actualizat_la: new Date().toISOString() })
+    .eq('id', 1);
+  showToast(error ? 'Eroare: ' + error.message : 'Setări salvate ✅', error ? 'error' : 'success');
+}
+
+/* Trimitere de probă. Funcția, apelată fără parametru, ia luna încheiată
+   și o marchează ca trimisă — la o probă nu vrem asta, deci cerem mereu
+   luna explicit. Implicit propunem luna curentă, fiindcă acolo sunt
+   mișcările proaspete pe care vrei să le vezi în raport. */
+async function trimiteRaportStocAcum() {
+  const stare = document.getElementById('stocRaportStare');
+  const acum = new Date();
+  const implicit = `${acum.getFullYear()}-${String(acum.getMonth()+1).padStart(2,'0')}`;
+  const luna = prompt('Pentru ce lună trimit raportul?\n(format AAAA-LL)', implicit);
+  if (!luna || !/^\d{4}-\d{2}$/.test(luna.trim())) return;
+
+  stare.textContent = 'se trimite…';
+  try {
+    const accessToken = await getFreshAccessToken();
+    if (!accessToken) { stare.textContent = 'sesiune expirată'; return; }
+    const r = await fetch(`${SUPABASE_URL}/functions/v1/stoc-raport-lunar?luna=${luna.trim()}`, {
+      headers: { 'Authorization': `Bearer ${accessToken}`, 'apikey': SUPABASE_KEY }
+    });
+    const j = await r.json();
+    stare.textContent = r.ok
+      ? `${luna.trim()} trimis către ${j.catre}: ${j.materiale} materiale, ${j.intrari} intrări, ${j.iesiri} ieșiri`
+      : `Eroare: ${j.error}`;
+  } catch (err) {
+    stare.textContent = 'Eroare de rețea';
+  }
+}
+
 async function renderStocIstoric() {
   const content = document.getElementById('stocTabContent');
   content.innerHTML = `<div style="text-align:center;padding:20px;color:var(--text-muted);">Se încarcă...</div>`;
 
+  const setari = await renderSetariRaport();
   const { data } = await sb.from('materiale_miscari')
     .select('*, materiale_stoc(nume), profiles(full_name)')
     .order('created_at', { ascending: false })
@@ -8648,7 +8820,7 @@ async function renderStocIstoric() {
   }).join('');
 
   // Wrapper cu scroll orizontal — pe telefon tabelul nu mai iese din ecran
-  content.innerHTML = `
+  content.innerHTML = setari + `
     <div class="stoc-table-wrap" style="background:var(--surface);border:1px solid var(--border);">
       <table style="width:100%;border-collapse:collapse;">
         <thead><tr style="background:var(--surface2);">
@@ -9278,7 +9450,7 @@ async function stergeMaterialStoc(id) {
 <!-- LIGHTBOX -->
 <div class="photo-lightbox" id="photoLightbox" onclick="closeLightbox()">
   <img id="lightboxImg" src="" alt="">
-  <div style="color:rgba(255,255,255,.6);font-size:13px;">Apasă oriunde pentru a închide</div>
+  <div style="color:rgba(255,255,255,.6);font-size:13px;">Apasă înapoi sau oriunde pentru a închide</div>
 </div>
 
 <!-- USERS MODAL -->

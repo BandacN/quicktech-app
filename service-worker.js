@@ -7,12 +7,19 @@
           în loc de signUp); rolul se aplică din prima
    v68 — telefon de contact la mentenanțe, preluat în taskul automat
    v69 — fix creare cont: acțiunea se decide din corpul cererii
+   v70 — raport lunar gestiune stoc pe email, cu setări în tab-ul Istoric
+   v71 — proba de raport întreabă pentru ce lună (implicit luna curentă)
+   v72 — butonul Înapoi de pe Android închide modalul sau modulul curent,
+          nu aplicația; ieșire doar cu dublă apăsare de pe dashboard
+   v73 — Înapoi închide și panourile glisante: detaliul taskului și
+          panoul de notificări
+   v74 — Înapoi închide și poza pe tot ecranul
    ═══════════════════════════════════════════════════════════════ */
 
 importScripts('https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.7.0/firebase-messaging-compat.js');
 
-const CACHE_NAME = 'quicktech-v69';
+const CACHE_NAME = 'quicktech-v74';
 const ASSETS = ['/index.html', '/manifest.json', '/icon-192.png', '/icon-512.png', '/icon-notification.png'];
 
 firebase.initializeApp({
