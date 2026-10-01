@@ -14,12 +14,15 @@
    v73 — Înapoi închide și panourile glisante: detaliul taskului și
           panoul de notificări
    v74 — Înapoi închide și poza pe tot ecranul
+   v75 — interfață nouă (listă grupată, meniu restrâns, tema Grafit);
+          versiunea nouă nu se mai activează singură: așteaptă apăsarea
+          pe „Actualizează” din banner (SKIP_WAITING)
    ═══════════════════════════════════════════════════════════════ */
 
 importScripts('https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.7.0/firebase-messaging-compat.js');
 
-const CACHE_NAME = 'quicktech-v74';
+const CACHE_NAME = 'quicktech-v75';
 const ASSETS = ['/index.html', '/manifest.json', '/icon-192.png', '/icon-512.png', '/icon-notification.png'];
 
 firebase.initializeApp({
@@ -120,7 +123,10 @@ self.addEventListener('install', event => {
       .then(cache => cache.addAll(ASSETS))
       .catch(err => console.error('[SW] install cache error:', err))
   );
-  self.skipWaiting();
+  // Fără skipWaiting automat: altfel versiunea nouă preia controlul imediat,
+  // pagina se reîncarcă singură și bannerul „Versiune nouă disponibilă” nu
+  // apucă să fie văzut. Activarea vine din mesajul SKIP_WAITING (jos).
+  // La prima instalare (fără versiune veche) se activează oricum imediat.
 });
 
 /* ─── ACTIVATE → curăț cache-urile vechi ─── */

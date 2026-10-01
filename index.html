@@ -30,7 +30,7 @@
 <link rel="apple-touch-icon" href="/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Onest:wght@400;500;600;700&family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&display=swap" rel="stylesheet">
 <!-- Versiune fixată + SRI: dacă CDN-ul livrează alt conținut decât cel
      verificat, browserul refuză să-l execute. Cu tag-ul mobil @2, orice
      update (sau compromitere a CDN-ului) ar fi rulat necontrolat. -->
@@ -111,6 +111,31 @@
   --green-bg: #ECFDF5;
   --amber-bg: #FFFBEB;
   --red-bg: #FEF2F2;
+}
+
+/* ── GRAFIT (gri cald + cerneală + portocaliu) ── */
+[data-theme="grafit"] {
+  --brand-dark: #15202B;
+  --brand-mid: #26323E;
+  --brand-blue: #1D4ED8;
+  --brand-blue2: #3B6FE0;
+  --brand-acc: #E8590C;
+  --brand-acc2: #F2803F;
+  --bg: #E7EAEC;
+  --surface: #FFFFFF;
+  --surface2: #F4F6F7;
+  --surface3: #EEF0F2;
+  --border: #DDE2E6;
+  --border2: #CDD3D8;
+  --text: #15202B;
+  --text-muted: #6B7682;
+  --text-soft: #4B5763;
+  --accent: #1D4ED8;
+  --accent-dim: #EEF3FD;
+  --accent-glow: rgba(29,78,216,0.22);
+  --green: #1F6B3A; --green-bg: #DDF1E4;
+  --amber-bg: #FDEBD3;
+  --red: #B42318; --red-bg: #FBE1DE;
 }
 
 /* ── MIDNIGHT ── */
@@ -2672,6 +2697,133 @@ label {
 /* utility */
 .danger { color: var(--red); }
 
+
+/* ═══════════════════════════════════════════════════════
+   V2 — header, listă task-uri, meniu restrâns
+   ═══════════════════════════════════════════════════════ */
+.page-title.is-date { font-size: 30px; letter-spacing: -0.8px; line-height: 1.1; }
+.hdr-search { max-width: 340px; flex: 0 1 340px; height: 42px; margin: 0; cursor: text; text-transform: none; letter-spacing: normal; font-weight: 500; }
+.hdr-search .hdr-search-ico { display: inline-flex; color: var(--text-soft); flex-shrink: 0; }
+.hdr-search .hdr-search-ico svg { width: 17px; height: 17px; }
+.hdr-search input::-webkit-search-cancel-button { cursor: pointer; }
+.hdr-search kbd { text-transform: none; letter-spacing: normal; font-family: inherit; font-size: 11px; font-weight: 600; color: var(--text-muted); border: 1px solid var(--border2); border-radius: 5px; padding: 1px 6px; flex-shrink: 0; }
+.btn.btn-new { background: #C2410C; border-color: #C2410C; color: #fff; gap: 6px; height: 42px; padding: 0 16px; font-size: 14px; }
+.btn.btn-new:hover { background: #9A3412; border-color: #9A3412; }
+.btn.btn-new svg { width: 17px; height: 17px; }
+.notif-btn { width: 42px; height: 42px; background: var(--surface); color: var(--text); }
+.notif-btn svg { width: 19px; height: 19px; }
+@media (min-width: 901px) { .page-hdr { align-items: flex-end; } }
+@media (max-width: 900px) {
+  .hdr-search { order: 3; flex: 1 1 100%; max-width: none; }
+  .hdr-search kbd { display: none; }
+  .btn.btn-new span { display: none; }
+  .btn.btn-new { padding: 0 12px; }
+}
+
+/* Listă task-uri grupată */
+.task-list.tl-v2 { padding: 2px 12px 14px; gap: 0; background: var(--surface2); }
+.tl-section + .tl-section { margin-top: 6px; }
+.tl-legend { display: flex; flex-wrap: wrap; gap: 8px 18px; padding: 14px 4px 2px; font-size: 12px; font-weight: 600; color: var(--text-soft); }
+.tl-legend span { display: inline-flex; align-items: center; gap: 7px; }
+.tl-legend .tl-dot { display: inline-block; }
+.tl-legend.tl-legend-foot { flex-shrink: 0; padding: 11px 16px; border-top: 1px solid var(--border); background: var(--surface); }
+.tl-group { padding: 12px 4px 7px; font-size: 12px; font-weight: 700; color: var(--text-soft); display: flex; gap: 6px; }
+.tl-group span { color: var(--text-muted); font-weight: 600; }
+.tl-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.task-list .tl-card > .task-card.tl-row:first-child { border-top: 0; }
+#historyBtn { display: none !important; }
+.task-list .task-card.tl-row { border: 0; border-top: 1px solid var(--border); border-radius: 0; margin: 0; padding: 12px 16px; gap: 12px; background: var(--surface); opacity: 1; }
+.task-list .task-card.tl-row:hover { background: var(--surface2); }
+.task-list .task-card.tl-row.selected { background: var(--accent-dim); box-shadow: inset 3px 0 0 var(--accent); }
+.task-list .task-card.tl-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.tl-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.tl-dot-normal { background: #1E5FD9; }
+.tl-dot-urgent { background: var(--amber); }
+.tl-dot-priority { background: var(--red); }
+.tl-dot-closed { background: var(--text-muted); }
+.tl-body { flex: 1; min-width: 0; }
+.tl-client { font-size: 14px; font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tl-closed .tl-client { color: var(--text-soft); }
+.tl-sub { font-size: 12px; font-weight: 500; color: var(--text-soft); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tl-meta { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.tl-pill { font-size: 11px; font-weight: 700; padding: 3px 0; width: 76px; box-sizing: border-box; border-radius: 999px; white-space: nowrap; text-align: center; display: inline-block; }
+.tl-p-normal { background: rgba(30,95,217,0.1); color: #1E4FC0; }
+.tl-p-urgent { background: var(--amber-bg); color: #B45309; }
+.tl-p-priority { background: var(--red-bg); color: #B91C1C; }
+.tl-s-nou { background: var(--surface3); color: var(--text-soft); }
+.tl-s-in_lucru { background: rgba(255,85,0,0.1); color: #C2410C; }
+.tl-s-finalizat { background: var(--green-bg); color: #047857; }
+[data-theme="dark"] .tl-p-normal, [data-theme="midnight"] .tl-p-normal { color: var(--brand-blue2); }
+[data-theme="dark"] .tl-p-urgent, [data-theme="midnight"] .tl-p-urgent { color: var(--amber); }
+[data-theme="dark"] .tl-p-priority, [data-theme="midnight"] .tl-p-priority { color: var(--red); }
+[data-theme="dark"] .tl-s-in_lucru, [data-theme="midnight"] .tl-s-in_lucru { color: var(--brand-acc2); }
+[data-theme="dark"] .tl-s-finalizat, [data-theme="midnight"] .tl-s-finalizat { color: var(--green); }
+.tl-date { width: 56px; text-align: right; font-size: 12px; font-weight: 600; color: var(--text-soft); }
+.tl-date.is-late { color: var(--red); font-weight: 800; }
+@media (max-width: 640px) {
+  .task-list .task-card.tl-row { display: grid; grid-template-columns: 9px minmax(0, 1fr) auto; column-gap: 10px; row-gap: 3px; align-items: center; padding: 12px 14px; }
+  .tl-row .tl-dot { grid-column: 1; grid-row: 1; }
+  .tl-row .tl-body { display: contents; }
+  .tl-row .tl-client { grid-column: 2; grid-row: 1; }
+  .tl-row .tl-sub { grid-column: 2 / 4; grid-row: 2; margin-top: 0; }
+  .tl-row .tl-meta { grid-column: 3; grid-row: 1; gap: 6px; }
+  .tl-row .tl-meta .tl-pill[class*="tl-p-"] { display: none; }
+  .tl-pill { width: 70px; }
+  .tl-date { width: 48px; }
+}
+
+/* Carduri statistici ca filtre */
+.stat-card[data-filter] { cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+.stat-card[data-filter]:hover { border-color: var(--border2); }
+.stat-card[data-filter].on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-glow); }
+/* Rândul de filtre e scos peste tot: filtrarea se face din cardurile de statistici */
+.main-content > .toolbar { display: none !important; }
+
+/* Tema Grafit: fonturi + detalii */
+[data-theme="grafit"] body, [data-theme="grafit"] button, [data-theme="grafit"] input,
+[data-theme="grafit"] select, [data-theme="grafit"] textarea { font-family: 'Onest', 'Plus Jakarta Sans', sans-serif; }
+[data-theme="grafit"] .page-title { font-family: 'Bricolage Grotesque', 'Onest', sans-serif; font-weight: 700; }
+[data-theme="grafit"] .tl-client { font-weight: 600; }
+[data-theme="grafit"] .tl-p-normal { background: #E3EAFB; color: #1E3A8A; }
+[data-theme="grafit"] .tl-p-urgent { background: #FDEBD3; color: #7A3B00; }
+[data-theme="grafit"] .tl-p-priority { background: #FBE1DE; color: #8C1C13; }
+[data-theme="grafit"] .tl-s-nou { background: #E4E7EA; color: #15202B; }
+[data-theme="grafit"] .tl-s-in_lucru { background: #FDE7D6; color: #6B2405; }
+[data-theme="grafit"] .tl-s-finalizat { background: #DDF1E4; color: #1F6B3A; }
+[data-theme="grafit"] .tl-dot-normal { background: #1D4ED8; }
+[data-theme="grafit"] .tl-dot-urgent { background: #D97706; }
+[data-theme="grafit"] .tl-dot-priority { background: #B42318; }
+[data-theme="grafit"] .tl-dot-closed { background: #9AA5B1; }
+[data-theme="grafit"] .task-list.tl-v2 { background: var(--surface2); }
+
+/* Iconițe meniu + meniu restrâns */
+.sidebar-item .si-icon, .sb-logout .si-icon { width: 20px; height: 20px; }
+.sidebar-item .si-icon svg, .sb-logout .si-icon svg, .sb-hist-ico svg { width: 19px; height: 19px; }
+.sb-hist-ico { display: none; color: rgba(255,255,255,0.6); }
+.sb-collapse-btn { display: flex; align-items: center; gap: 10px; margin: 10px 12px 6px; height: 34px; padding: 0 12px; border: 1px solid rgba(255,255,255,0.1); border-radius: 9px; background: transparent; color: rgba(255,255,255,0.6); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; flex-shrink: 0; transition: color .15s, border-color .15s; }
+.sb-collapse-btn:hover { color: #fff; border-color: rgba(255,255,255,0.25); }
+.sb-collapse-btn svg { width: 17px; height: 17px; flex-shrink: 0; }
+@media (max-width: 900px) { .sb-collapse-btn { display: none; } }
+@media (min-width: 901px) {
+  .sidebar { transition: width .2s ease; }
+  body.sb-collapsed { --sidebar-w: 76px; }
+  body.sb-collapsed .sb-logo { justify-content: center; padding-left: 0; padding-right: 0; }
+  body.sb-collapsed .sb-logo > :not(.sb-logo-ico) { display: none; }
+  body.sb-collapsed .sb-collapse-btn { justify-content: center; padding: 0; margin: 10px 14px 6px; }
+  body.sb-collapsed .sb-collapse-btn-lbl { display: none; }
+  body.sb-collapsed .sb-user { justify-content: center; padding-left: 0; padding-right: 0; }
+  body.sb-collapsed .sb-user > :not(.sb-av):not(.user-dropdown) { display: none; }
+  body.sb-collapsed .sidebar-title { display: none; }
+  body.sb-collapsed .sidebar-item { justify-content: center; padding: 11px 0; }
+  body.sb-collapsed .sidebar-item > span:not(.si-icon):not(.sb-badge) { display: none; }
+  body.sb-collapsed .sidebar-item .sb-badge { position: absolute; top: 4px; right: 16px; margin: 0; padding: 1px 5px; min-width: 16px; }
+  body.sb-collapsed .sb-collapse-hdr { justify-content: center; padding: 11px 0; }
+  body.sb-collapsed .sb-collapse-hdr .sb-collapse-lbl, body.sb-collapsed .sb-collapse-arrow { display: none; }
+  body.sb-collapsed .sb-hist-ico { display: inline-flex; }
+  body.sb-collapsed #monthList { display: none !important; }
+  body.sb-collapsed .sb-logout { justify-content: center; padding-left: 0; padding-right: 0; }
+  body.sb-collapsed .sb-logout > span:not(.si-icon) { display: none; }
+}
 </style>
 </head>
 <body class="no-bottom-nav">
@@ -2760,6 +2912,10 @@ label {
           <div class="sb-logo-sub">quicktechsecurity.ro</div>
         </div>
       </div>
+      <!-- Restrânge / extinde meniul (doar desktop) -->
+      <button type="button" class="sb-collapse-btn" id="sbCollapseBtn" onclick="toggleSbCollapse()" aria-label="Restrânge meniul" title="Restrânge meniul">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg><span class="sb-collapse-btn-lbl">Restrânge meniul</span>
+      </button>
       <!-- USER CARD (click = meniu temă + deconectare) -->
       <div class="sb-user" onclick="toggleUserMenu()" id="sbUserClickable" style="cursor:pointer;position:relative;">
         <div class="sb-av" id="sbUserAv">N</div>
@@ -2779,6 +2935,9 @@ label {
           <div class="user-dropdown-item theme-opt" id="themeOptMidnight" onclick="applyTheme('midnight')">
             <span>🌌 Midnight</span><span class="theme-check" id="chkMidnight"></span>
           </div>
+          <div class="user-dropdown-item theme-opt" id="themeOptGrafit" onclick="applyTheme('grafit')">
+            <span>🪨 Grafit</span><span class="theme-check" id="chkGrafit"></span>
+          </div>
           <div class="user-dropdown-item theme-opt" id="themeOptLight" onclick="applyTheme('light')">
             <span>☀️ Deschis</span><span class="theme-check" id="chkLight"></span>
           </div>
@@ -2791,11 +2950,12 @@ label {
       <!-- LUNA CURENTĂ -->
       <div class="sidebar-title" id="sidebarLunaTitle">Luna curentă</div>
       <div class="sidebar-item active" id="sidebarCurrent" onclick="selectMonth('current',this)">
-        <span class="si-icon">📋</span>
+        <span class="si-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 13h5M8 16h8"/></svg></span>
         <span id="currentMonthLabel">Luna aceasta</span>
       </div>
       <div class="sidebar-divider" id="sidebarDividerIstoric"></div>
-      <div class="sb-collapse-hdr" id="sidebarIstoricHdr" onclick="toggleIstoricSection()">
+      <div class="sb-collapse-hdr" id="sidebarIstoricHdr" title="Istoric" onclick="if(document.body.classList.contains('sb-collapsed'))toggleSbCollapse(false);toggleIstoricSection()">
+        <span class="si-icon sb-hist-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 103-6.7L3 8M3 3v5h5M12 7v5l3 2"/></svg></span>
         <div class="sb-collapse-lbl">Istoric <span class="sb-collapse-count" id="istoricCount"></span></div>
         <span class="sb-collapse-arrow" id="istoricArrow">▶</span>
       </div>
@@ -2805,40 +2965,40 @@ label {
       <div class="sidebar-divider"></div>
       <div class="sidebar-title">Module</div>
       <div class="sidebar-item" id="sidebarSarcini" onclick="selectMonth('current',document.getElementById('sidebarCurrent'))">
-        <span class="si-icon">📋</span>
+        <span class="si-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></svg></span>
         <span>Sarcini</span>
       </div>
       <div class="sidebar-item" id="sidebarMateriale" onclick="showMateriale()" style="display:none;">
-        <span class="si-icon">📦</span>
+        <span class="si-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8l-9-5-9 5 9 5 9-5zM3 8v8l9 5 9-5V8M12 13v8"/></svg></span>
         <span>Materiale</span>
         <span class="sb-badge" id="materialeBadge" style="display:none;"></span>
       </div>
       <div class="sidebar-item" id="sidebarAuto" onclick="showAuto()" style="display:none;">
-        <span class="si-icon">🚗</span>
+        <span class="si-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13l2-6h14l2 6v5H3zM3 13h18"/><circle cx="7.5" cy="16" r="1"/><circle cx="16.5" cy="16" r="1"/></svg></span>
         <span>Parc Auto</span>
         <span class="sb-badge" id="autoBadge" style="display:none;"></span>
       </div>
       <div class="sidebar-item" id="sidebarMent" onclick="showMent()" style="display:none;">
-        <span class="si-icon">🔄</span>
+        <span class="si-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a4 4 0 00-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 005.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/></svg></span>
         <span>Mentenanțe</span>
         <span class="sb-badge" id="mentBadge" style="display:none;"></span>
       </div>
       <div class="sidebar-item" id="sidebarGarantii" onclick="showGarantii()" style="display:none;">
-        <span class="si-icon">🛡</span>
+        <span class="si-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></svg></span>
         <span>Garanții</span>
         <span class="sb-badge" id="garantiiBadge" style="display:none;"></span>
       </div>
       <div class="sidebar-item" id="sidebarCereri" onclick="showCereri()">
-        <span class="si-icon">📋</span>
+        <span class="si-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3h8l4 4v14H4V3h4zM9 13l2 2 4-4"/></svg></span>
         <span>Cereri invoiri</span>
         <span class="sb-badge" id="cereriBadge" style="display:none;"></span>
       </div>
       <div class="sidebar-item" id="sidebarClienti" onclick="showClienti()" style="display:none;">
-        <span class="si-icon">👥</span>
+        <span class="si-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.5 3.4-5 6.5-5s5.7 1.5 6.5 5M16 4.5a3.5 3.5 0 010 7M18 15c2 .6 3.2 2.3 3.5 5"/></svg></span>
         <span>Listă clienți</span>
       </div>
       <div class="sidebar-item" id="sidebarStoc" onclick="showStoc()" style="display:none;">
-        <span class="si-icon">📦</span>
+        <span class="si-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16v13H4zM4 7l2-4h12l2 4M10 11h4"/></svg></span>
         <span>Gestiune Stoc</span>
         <span class="sb-badge" id="stocBadge" style="display:none;"></span>
       </div>
@@ -2846,20 +3006,20 @@ label {
       <div class="sidebar-divider" id="sidebarDividerSetari"></div>
       <div class="sidebar-title" id="sidebarSetariTitle">Setări</div>
       <div class="sidebar-item" id="sidebarLocations" onclick="openLocationsModal()">
-        <span class="si-icon">📍</span>
+        <span class="si-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11a7 7 0 0114 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg></span>
         <span>Locații salvate</span>
       </div>
       <div class="sidebar-item" id="sidebarUsers" onclick="openUsersModal()" style="display:none;">
-        <span class="si-icon">👥</span>
+        <span class="si-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4-6 8-6s7 2 8 6"/></svg></span>
         <span>Utilizatori</span>
       </div>
       <div class="sidebar-item" id="sidebarTeams" onclick="openTeamsModal()" style="display:none;">
-        <span class="si-icon">🛡️</span>
+        <span class="si-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7" cy="9" r="3"/><circle cx="17" cy="9" r="3"/><path d="M1.5 20c.6-3 2.7-4.5 5.5-4.5S12 17 12.5 20M11.5 20c.6-3 2.7-4.5 5.5-4.5s4.9 1.5 5.5 4.5"/></svg></span>
         <span>Echipe</span>
       </div>
       <!-- LOGOUT -->
-      <div class="sb-logout" onclick="doLogout()">
-        <span style="font-size:14px;">⏏</span>
+      <div class="sb-logout" onclick="doLogout()" title="Deconectare">
+        <span class="si-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h11"/></svg></span>
         <span>Deconectare</span>
       </div>
     </aside>
@@ -2877,11 +3037,16 @@ label {
           <div class="page-title" id="pageTitle">Dashboard</div>
           <div class="page-sub" id="pageSub">Bun venit!</div>
         </div>
+        <label class="search-bar hdr-search" id="hdrSearch">
+          <span class="hdr-search-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></span>
+          <input type="search" id="searchInput" placeholder="Caută client, adresă, tehnician" aria-label="Caută client, adresă sau tehnician" oninput="renderTasks()">
+          <kbd>Ctrl K</kbd>
+        </label>
         <div class="page-hdr-actions" id="pageHdrActions">
           <button class="btn btn-ghost btn-sm" onclick="toggleHistoryDrawer()" id="historyBtn" style="display:none;">📅 Istoric luni</button>
-          <button class="btn btn-primary btn-sm" id="addTaskBtn" onclick="openTaskModal()" style="display:none;">＋ Task nou</button>
-          <div class="notif-btn" onclick="toggleNotif()" style="margin-left:4px;">
-            🔔
+          <button class="btn btn-primary btn-sm btn-new" id="addTaskBtn" onclick="openTaskModal()" style="display:none;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>Intervenție nouă</span></button>
+          <div class="notif-btn" onclick="toggleNotif()" style="margin-left:4px;" role="button" tabindex="0" aria-label="Notificări" onkeydown="if(event.key==='Enter')toggleNotif()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0112 0c0 7 3 8 3 8H3s3-1 3-8M10 20a2 2 0 004 0"/></svg>
             <div class="notif-badge" id="notifBadge" style="display:none;"></div>
           </div>
         </div>
@@ -3210,7 +3375,7 @@ async function showApp() {
   const userName = currentProfile?.full_name || currentUser.email;
   const monthNames = ['Ianuarie','Februarie','Martie','Aprilie','Mai','Iunie','Iulie','August','Septembrie','Octombrie','Noiembrie','Decembrie'];
   const now = new Date();
-  document.getElementById('pageSub').textContent = `Bună ziua, ${userName.split(' ')[0]} 👋 — ${monthNames[now.getMonth()]} ${now.getFullYear()}`;
+  setTasksHeader();
 
   // Populez user card sidebar
   const sbUserAv = document.getElementById('sbUserAv');
@@ -3427,6 +3592,7 @@ function renderTasks() {
 
   let filtered = allTasks.filter(t => {
     if (currentFilter === 'all') return true;
+    if (currentFilter === 'active') return t.status !== 'finalizat' && !t.closed_at;
     if (['normal','urgent','priority'].includes(currentFilter)) return t.priority === currentFilter;
     return t.status === currentFilter;
   });
@@ -3488,54 +3654,70 @@ function renderTasks() {
     return {icon:'📋', bg:'#EFF6FF'};
   };
 
-  list.innerHTML = filtered.map(t => {
-    const isSelected = t.id === selectedTaskId ? 'selected' : '';
+  // ── LISTĂ v2: grupată pe status, rând compact ──
+  list.classList.add('tl-v2');
+  const _luniS = ['ian','feb','mar','apr','mai','iun','iul','aug','sep','oct','noi','dec'];
+  const _azi = new Date(); _azi.setHours(0, 0, 0, 0);
+  const _dateInfo = (t) => {
+    const fin = !!t.closed_at || t.status === 'finalizat';
+    // finalizate: data la care s-a închis (sau ultima modificare); celelalte: data programată
+    const src = fin ? (t.closed_at || t.updated_at || t.date || t.created_at) : t.date;
+    if (!src) return { txt: '', late: false };
+    const d = new Date(src);
+    if (isNaN(d)) return { txt: '', late: false };
+    d.setHours(0, 0, 0, 0);
+    const dif = Math.round((d - _azi) / 86400000);
+    let txt = dif === 0 ? 'Azi' : dif === -1 ? 'Ieri' : dif === 1 ? 'Mâine' : `${d.getDate()} ${_luniS[d.getMonth()]}`;
+    if (Math.abs(dif) > 1 && d.getFullYear() !== _azi.getFullYear()) txt += ` ${String(d.getFullYear()).slice(2)}`;
+    return { txt, late: !fin && dif < 0 };
+  };
+  const _PL = { normal: 'Normal', urgent: 'Urgent', priority: 'Prioritar' };
+  const _SL = { nou: 'Nou', in_lucru: 'În lucru', finalizat: 'Finalizat' };
+  const _rowHtml = (t) => {
+    const isSelected = t.id === selectedTaskId ? ' selected' : '';
     const isOpen = t.is_open_pool && !t.technician_id;
     const isTeam = Array.isArray(t.team_member_ids) && t.team_member_ids.length > 0;
     const isClosed = !!t.closed_at || t.status === 'finalizat';
-    // Construiesc numele afișat
     let techName;
     if (isTeam) {
       const names = t.team_member_ids.map(uid => {
         const p = allProfiles.find(x => x.id === uid);
         return p ? p.full_name.split(' ')[0] : '?';
       });
-      techName = `👥 Echipă: ${names.join(' + ')}`;
+      techName = 'Echipa ' + names.join(' + ');
     } else if (isOpen) {
-      techName = '🌐 Disponibil pentru toți';
+      techName = 'Disponibil pentru toți';
     } else {
       techName = getTechName(t.technician_id) || t.technician_name || 'Neatribuit';
     }
-    // Iconiță și fundal după tip
-    let ico;
-    if (isTeam) ico = {icon:'👥', bg:'#F0F7FF'};
-    else if (isOpen) ico = {icon:'🌐', bg:'#EFF6FF'};
-    else ico = getTaskIcon(t);
-    // Afișare locație: dacă există adresă text → o folosesc; altfel dacă există doar pin → "🔗 Locație pe hartă"
-    const locDisplay = t.location ? t.location : (t.maps_link ? '🔗 Locație pe hartă' : '');
-    const cardClasses = [
-      `task-card priority-${t.priority}`,
-      isSelected,
-      isOpen ? 'open-pool' : '',
-      isTeam ? 'team-task' : '',
-      isClosed ? 'closed-task' : '',
-    ].filter(Boolean).join(' ');
+    const loc = t.location ? t.location : (t.maps_link ? 'Locație pe hartă' : '');
+    const sub = (loc ? loc + ' · ' : '') + techName;
+    const prio = _PL[t.priority] ? t.priority : 'normal';
+    const st = _SL[t.status] ? t.status : 'nou';
+    const di = _dateInfo(t);
     return `
-    <div class="${cardClasses}" data-task-id="${t.id}" onclick="selectTask(${t.id})">
-      <div class="tc-ico" style="background:${ico.bg};">${ico.icon}</div>
-      <div class="tc-body">
-        <div class="tc-top">
-          <div class="tc-client">${esc(t.client)}</div>
-        </div>
-        <div class="tc-loc">${locDisplay ? (locDisplay + ' · ') : ''}${techName}</div>
+    <div class="task-card tl-row${isSelected}${isClosed ? ' tl-closed' : ''}" data-task-id="${t.id}" tabindex="0" onclick="selectTask(${t.id})" onkeydown="if(event.key==='Enter')selectTask(${t.id})">
+      <span class="tl-dot tl-dot-${isClosed ? 'closed' : prio}" aria-hidden="true"></span>
+      <div class="tl-body">
+        <div class="tl-client">${esc(t.client)}</div>
+        <div class="tl-sub">${esc(sub)}</div>
       </div>
-      <div class="tc-badges">
-        ${priorityBadge(t.priority)}
-        ${statusBadge(t.status)}
-        ${installDateBadge(t)}
+      <div class="tl-meta">
+        <span class="tl-pill tl-p-${prio}">${_PL[prio]}</span>
+        <span class="tl-pill tl-s-${st}">${_SL[st]}</span>
+        <span class="tl-date${di.late ? ' is-late' : ''}"${di.late ? ' title="Restant"' : ''}>${di.txt}</span>
       </div>
     </div>`;
+  };
+  const _groups = [['nou', 'Noi'], ['in_lucru', 'În lucru'], ['finalizat', 'Finalizate']];
+  list.innerHTML = _groups.map(([k, lbl]) => {
+    const items = filtered.filter(t => (_SL[t.status] ? t.status : 'nou') === k);
+    if (!items.length) return '';
+    return `<section class="tl-section"><div class="tl-group">${lbl} <span>${items.length}</span></div><div class="tl-card">${items.map(_rowHtml).join('')}</div></section>`;
   }).join('');
+  const _leg = document.getElementById('taskLegend');
+  if (_leg) _leg.style.display = filtered.length ? '' : 'none';
+  if (typeof fitSplitView === 'function') fitSplitView();
 
   // dacă există un task selectat anterior, re-render detail (pentru update live)
   if (selectedTaskId) {
@@ -4299,8 +4481,14 @@ async function markAllRead() {
 function setFilter(f, btn) {
   currentFilter = f;
   document.querySelectorAll('.filt').forEach(b=>b.classList.remove('on'));
-  btn.classList.add('on');
+  if (!btn) btn = document.querySelector(`.filt[onclick*="'${f}'"]`);
+  if (btn) btn.classList.add('on');
+  document.querySelectorAll('.stat-card[data-filter]').forEach(c => c.classList.toggle('on', c.dataset.filter === f));
   renderTasks();
+}
+// Apăsare pe un card de statistici → filtrează lista; a doua apăsare revine la toate
+function statFilter(f) {
+  setFilter(currentFilter === f ? 'all' : f, null);
 }
 
 // ── HELPERS ──
@@ -5093,6 +5281,69 @@ function useLocation(name, address, mapsLink) {
 // ── SIDEBAR ──
 let selectedMonth = 'current';
 
+// ── Titlul paginii de task-uri: data de azi + salut ──
+function setTasksHeader() {
+  const zile = ['Duminică','Luni','Marți','Miercuri','Joi','Vineri','Sâmbătă'];
+  const luni = ['ianuarie','februarie','martie','aprilie','mai','iunie','iulie','august','septembrie','octombrie','noiembrie','decembrie'];
+  const d = new Date();
+  const pt = document.getElementById('pageTitle');
+  const ps = document.getElementById('pageSub');
+  const name = ((typeof currentProfile !== 'undefined' && currentProfile?.full_name) || (typeof currentUser !== 'undefined' && currentUser?.email) || '').split(' ')[0];
+  const h = d.getHours();
+  const greeting = h < 12 ? 'Bună dimineața' : (h < 18 ? 'Bună ziua' : 'Bună seara');
+  if (pt) { pt.textContent = `${zile[d.getDay()]}, ${d.getDate()} ${luni[d.getMonth()]}`; pt.classList.add('is-date'); }
+  if (ps) ps.textContent = name ? `${greeting}, ${name}.` : `${greeting}.`;
+}
+
+// ── Meniu lateral restrâns (doar desktop), memorat pe dispozitiv ──
+function toggleSbCollapse(force) {
+  const on = typeof force === 'boolean' ? force : !document.body.classList.contains('sb-collapsed');
+  document.body.classList.toggle('sb-collapsed', on);
+  const btn = document.getElementById('sbCollapseBtn');
+  if (btn) {
+    const lbl = on ? 'Extinde meniul' : 'Restrânge meniul';
+    btn.setAttribute('aria-label', lbl); btn.title = lbl;
+    const l = btn.querySelector('.sb-collapse-btn-lbl'); if (l) l.textContent = lbl;
+  }
+  try { localStorage.setItem('qt_sb_collapsed', on ? '1' : '0'); } catch (e) {}
+}
+(function initSidebarV2() {
+  const run = () => {
+    // tooltip cu numele pe fiecare element din meniu (util când meniul e restrâns)
+    document.querySelectorAll('.sidebar .sidebar-item').forEach(el => {
+      if (!el.title) { const s = el.querySelector('span:not(.si-icon):not(.sb-badge)'); if (s) el.title = s.textContent.trim(); }
+    });
+    let saved = null; try { saved = localStorage.getItem('qt_sb_collapsed'); } catch (e) {}
+    if (saved === '1') toggleSbCollapse(true);
+    // Căutarea din header apare doar când e vizibilă bara de filtre a task-urilor
+    const tb = document.querySelector('.main-content > .toolbar');
+    const hs = document.getElementById('hdrSearch');
+    if (tb && hs) {
+      const sync = () => { hs.style.display = (tb.style.display === 'none') ? 'none' : ''; };
+      sync();
+      new MutationObserver(sync).observe(tb, { attributes: true, attributeFilter: ['style'] });
+    }
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run); else run();
+  // Ctrl+K / Cmd+K → focus pe căutare
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
+      const i = document.getElementById('searchInput');
+      if (i && i.offsetParent !== null) { e.preventDefault(); i.focus(); i.select(); }
+    }
+  });
+})();
+
+// Lista și detaliile ocupă tot spațiul până jos (doar desktop)
+function fitSplitView() {
+  const sv = document.getElementById('splitView');
+  if (!sv) return;
+  if (window.innerWidth <= 900 || sv.offsetParent === null) { sv.style.height = ''; return; }
+  const top = sv.getBoundingClientRect().top + window.scrollY;
+  sv.style.height = Math.max(500, Math.floor(window.innerHeight - top)) + 'px';
+}
+window.addEventListener('resize', () => { clearTimeout(window._fitSvT); window._fitSvT = setTimeout(fitSplitView, 80); });
+
 function toggleSidebar() {
   document.getElementById('sidebar').classList.toggle('open');
   document.getElementById('sidebarOverlay').classList.toggle('open');
@@ -5261,7 +5512,7 @@ function applyTheme(theme) {
   }
   localStorage.setItem('qt_theme', theme);
   // Update checks
-  ['dark','midnight','light'].forEach(t => {
+  ['dark','midnight','grafit','light'].forEach(t => {
     const chk = document.getElementById('chk' + t.charAt(0).toUpperCase() + t.slice(1));
     const opt = document.getElementById('themeOpt' + t.charAt(0).toUpperCase() + t.slice(1));
     if (chk) chk.textContent = t === theme ? '✓' : '';
@@ -5324,6 +5575,15 @@ function setupUpdateDetection(swReg) {
   setInterval(() => {
     swReg.update().catch(() => {});
   }, 60 * 60 * 1000);
+
+  // Pe telefon aplicația stă mult în fundal: verific și când revine pe ecran (max o dată la 5 min)
+  let lastCheck = Date.now();
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return;
+    if (Date.now() - lastCheck < 5 * 60 * 1000) return;
+    lastCheck = Date.now();
+    swReg.update().catch(() => {});
+  });
 }
 
 function showUpdateBanner(waitingSW) {
@@ -5529,6 +5789,8 @@ function showAuto() {
 
 // ── FUNCȚIE CENTRALĂ NAVIGARE ──
 function _hideAll() {
+  const _pt = document.getElementById('pageTitle');
+  if (_pt) _pt.classList.remove('is-date');
   // Ascunde toate paginile module
   ['garPage','autoPage','matPage','mentPage','cereriPage','clientiPage','stocPage'].forEach(id => {
     const el = document.getElementById(id);
@@ -5636,8 +5898,7 @@ function showTasks() {
   const name = (currentProfile?.full_name || currentUser.email || '').split(' ')[0];
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Bună dimineața' : (hour < 18 ? 'Bună ziua' : 'Bună seara');
-  document.getElementById('pageTitle').textContent = 'Dashboard';
-  document.getElementById('pageSub').textContent = `${greeting}, ${name} 👋 — ${new Date().toLocaleDateString('ro-RO', {month:'long', year:'numeric'})}`;
+  setTasksHeader();
   document.querySelectorAll('.sidebar-item').forEach(i => i.classList.remove('active'));
   const sidebarCurrent = document.getElementById('sidebarCurrent');
   if (sidebarCurrent) sidebarCurrent.classList.add('active');
@@ -7235,7 +7496,26 @@ function setGarFilter(f, btn) {
   renderGarantii();
 }
 
+// Bannerul apare doar când există echipamente cu termen depășit / urgent și mesajul către distribuitor netrimis
+function renderGarAlert() {
+  const box = document.getElementById('garAlert');
+  const items = document.getElementById('garAlertItems');
+  if (!box || !items) return;
+  const urgente = (allGarantii || []).filter(g => {
+    const u = garUrgency(g);
+    return (u === 'urgent' || u === 'expired') && !g.mesaj_trimis;
+  }).sort((a, b) => garDaysUntil(a.data_expirare) - garDaysUntil(b.data_expirare));
+  if (!urgente.length) { box.style.display = 'none'; items.innerHTML = ''; return; }
+  box.style.display = '';
+  items.innerHTML = urgente.map(g => {
+    const d = garDaysUntil(g.data_expirare);
+    const txt = d < 0 ? `depășit cu ${Math.abs(d)}z` : (d === 0 ? 'expiră azi' : `${d}z rămase`);
+    return `<span class="gar-alert-chip" style="cursor:pointer;" onclick="openGarDetail('${g.id}')">${esc(g.echipament)} — ${txt}</span>`;
+  }).join('');
+}
+
 function renderGarantii() {
+  renderGarAlert();
   const list = document.getElementById('garList');
   const empty = document.getElementById('garEmpty');
   if (!list) return;
@@ -7363,7 +7643,7 @@ async function markGarSent(id) {
   await sb.from('garantii').update({ mesaj_trimis: true }).eq('id', id);
   const g = allGarantii.find(x => x.id === id);
   if (g) g.mesaj_trimis = true;
-  updateGarBadge(); renderGarWidget();
+  updateGarBadge(); renderGarWidget(); renderGarantii();
   showToast('Marcat ca trimis ✅', 'success');
   openGarDetail(id);
 }
@@ -8278,13 +8558,15 @@ function clientGarantieStatus(c) {
 function renderClienti() {
   const el = document.getElementById('clientiContent');
   if (!el) return;
-  const searchVal = (document.getElementById('clientiSearch')?.value || '').toLowerCase();
+  const searchVal = (document.getElementById('clientiSearch')?.value || '').toLowerCase().trim();
   let filtered = allClienti;
   if (searchVal) filtered = allClienti.filter(c =>
     (c.nume||'').toLowerCase().includes(searchVal) ||
     (c.adresa||'').toLowerCase().includes(searchVal) ||
-    (c.telefon||'').toLowerCase().includes(searchVal) ||
-    (c.tip_sistem||[]).some(s => s.toLowerCase().includes(searchVal))
+    (c.telefon||'').toLowerCase().replace(/\s/g,'').includes(searchVal.replace(/\s/g,'')) ||
+    (c.echipa_text||'').toLowerCase().includes(searchVal) ||
+    (c.profiles?.full_name||'').toLowerCase().includes(searchVal) ||
+    (c.tip_sistem||[]).some(s => (s||'').toLowerCase().includes(searchVal))
   );
   window.clientiIndexMap = {};
   filtered.forEach((c, idx) => { clientiIndexMap[idx] = c.id; });
@@ -8318,13 +8600,22 @@ function renderClienti() {
         </div>
       </div>`;
     }).join('');
+  const countTxt = `${allClienti.length} clienți în evidență` + (searchVal ? ` · ${filtered.length} găsiți` : '');
+  // Dacă bara de căutare există deja, actualizez doar lista (altfel inputul se recreează și pierde textul)
+  const gridEl = document.getElementById('clientiGrid');
+  if (gridEl && document.getElementById('clientiSearch')) {
+    gridEl.innerHTML = cards;
+    const cntEl = document.getElementById('clientiCount');
+    if (cntEl) cntEl.textContent = countTxt;
+    return;
+  }
   el.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px;">
-      <div style="font-size:13px;color:var(--text-muted);">${allClienti.length} clienți în evidență</div>
+      <div id="clientiCount" style="font-size:13px;color:var(--text-muted);">${countTxt}</div>
       <button class="btn btn-primary" style="font-size:13px;" onclick="openClientModal()">＋ Client nou</button>
     </div>
-    <input type="text" id="clientiSearch" placeholder="🔍 Caută client, adresă, sistem..." class="form-control" style="margin-bottom:14px;" oninput="renderClienti()">
-    <div class="clienti-grid">${cards}</div>`;
+    <input type="search" id="clientiSearch" placeholder="🔍 Caută client, adresă, telefon, sistem..." aria-label="Caută client" class="form-control" style="margin-bottom:14px;" oninput="renderClienti()">
+    <div class="clienti-grid" id="clientiGrid">${cards}</div>`;
 }
 
 async function createTaskDinClient(clientId) {
@@ -9140,21 +9431,21 @@ async function stergeMaterialStoc(id) {
 
       <!-- STATS -->
       <div class="stats" id="statsRow">
-        <div class="stat-card">
+        <div class="stat-card" data-filter="active" role="button" tabindex="0" onclick="statFilter('active')" onkeydown="if(event.key==='Enter')statFilter('active')">
           <div class="stat-ico s-blue">📋</div>
           <div class="stat-info">
             <div class="stat-val c-blue" id="stTotal">0</div>
             <div class="stat-lbl">Task-uri active</div>
           </div>
         </div>
-        <div class="stat-card">
+        <div class="stat-card" data-filter="finalizat" role="button" tabindex="0" onclick="statFilter('finalizat')" onkeydown="if(event.key==='Enter')statFilter('finalizat')">
           <div class="stat-ico s-green">✅</div>
           <div class="stat-info">
             <div class="stat-val c-green" id="stFinalizate">0</div>
             <div class="stat-lbl">Finalizate luna asta</div>
           </div>
         </div>
-        <div class="stat-card">
+        <div class="stat-card" data-filter="urgent" role="button" tabindex="0" onclick="statFilter('urgent')" onkeydown="if(event.key==='Enter')statFilter('urgent')">
           <div class="stat-ico s-red">🚨</div>
           <div class="stat-info">
             <div class="stat-val c-red" id="stUrg">0</div>
@@ -9175,16 +9466,12 @@ async function stergeMaterialStoc(id) {
 
       <!-- SEARCH + TOOLBAR -->
       <div class="toolbar">
-        <div class="search-bar">
-          <span style="color:var(--text-muted);">🔍</span>
-          <input type="text" id="searchInput" placeholder="Caută client, adresă, tehnician..." oninput="renderTasks()">
-        </div>
         <div class="filters" id="filterBar">
           <button class="filt on" onclick="setFilter('all',this)">Toate</button>
-          <button class="filt" onclick="setFilter('normal',this)"><span style="color:#1E5FD9;">●</span> Normal</button>
-          <button class="filt" onclick="setFilter('urgent',this)"><span style="color:var(--amber);">●</span> Urgent</button>
-          <button class="filt" onclick="setFilter('priority',this)"><span style="color:var(--red);">●</span> Prioritar</button>
-          <button class="filt" onclick="setFilter('nou',this)"><span style="color:#475569;">●</span> Nou</button>
+          <button class="filt" onclick="setFilter('normal',this)">Normal</button>
+          <button class="filt" onclick="setFilter('urgent',this)">Urgent</button>
+          <button class="filt" onclick="setFilter('priority',this)">Prioritar</button>
+          <button class="filt" onclick="setFilter('nou',this)">Nou</button>
           <button class="filt" onclick="setFilter('in_lucru',this)">În lucru</button>
           <button class="filt" onclick="setFilter('finalizat',this)">Finalizat</button>
         </div>
@@ -9199,6 +9486,12 @@ async function stergeMaterialStoc(id) {
             <span class="panel-count" id="taskCount">0 active</span>
           </div>
           <div class="task-list" id="taskList"></div>
+          <div class="tl-legend tl-legend-foot" id="taskLegend" aria-label="Legendă prioritate" style="display:none;">
+            <span><i class="tl-dot tl-dot-normal"></i>Normal</span>
+            <span><i class="tl-dot tl-dot-urgent"></i>Urgent</span>
+            <span><i class="tl-dot tl-dot-priority"></i>Prioritar</span>
+            <span><i class="tl-dot tl-dot-closed"></i>Finalizat</span>
+          </div>
           <div class="empty" id="emptyState" style="display:none;"><div class="empty-ico">📋</div><p>Niciun task găsit.</p></div>
         </div>
         <!-- DETALII TASK (dreapta) -->
@@ -9287,7 +9580,7 @@ async function stergeMaterialStoc(id) {
       </div>
 
       <div class="gar-page" id="garPage">
-        <div class="gar-alert" id="garAlert">
+        <div class="gar-alert" id="garAlert" style="display:none;">
           <div class="gar-alert-title">⚠ Termene urgente — mesaj netrimis</div>
           <div class="gar-alert-items" id="garAlertItems"></div>
         </div>
